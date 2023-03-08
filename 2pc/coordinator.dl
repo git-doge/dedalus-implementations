@@ -1,17 +1,9 @@
-// topics
-// - 2pc no votes? *(yes, since no timeout)
-// - access time for timers in sugar dedalus *(not needed)
-// - how to enforce serial ids if we can expect concurrent incoming messages *(aggr with choose)
-// - is update the same as having succ(t, t') (fact goes into effect next timestep)? if not what does :+ do and how can we impl succ(t, t') *(yes)
-
-// questions for david (about 2pc in general tbh):
-// - if the coordinator in 2pc times out when trying to reach a participant, they send a rollback
-// - but then the coordinator refuses to move on until its received unanimous acks
-// - why are we willing to wait for down participants when acking but not when querying for commits?
-// - either way the system as a whole is blocked until the machine is back up
-
-// questions for david about sugary dedalus
-// - how can we access time for timers?
+// more notes/questions for david
+// - i remembered why i had the "can't already be committed/aborted" rule, it was cuz i added that with timers in mind
+// - when it comes to partitioning, is the real culprit aggregating or persisting? i feel like it depends but i'd like to clarify
+// - since persisting isn't all bad, id imagine you can prolly just partition the storage of data if it doesn't break stuff
+// - do i have to design the coordinator with partitioning in mind? aka keeping persisting/aggregating to a min
+// - do i have to design EVERYTHING with partitioning in mind?
 
 .input clientIn
 .output clientOut
@@ -30,25 +22,30 @@ success(res)
 reject(res)
 
 AllMsg(msg) :+ AllMsg(msg)
-message(...) :+ ...
-// ... other persist stuff here
+AllVotes(i, msg, res, l_from) :+ AllVotes(i, msg, res, l_from)
+AllAcks(i, msg, l_from) :+ AllAcks(i, msg, l_from)
+// for persisting stuff what are thoughts on smthn like:
+// message(_*) :+ message(_*)
+// instead of: message(_, _) :+ message(_, _)
+// or even:
+message(i, msg) :+ message(i, msg)
 
-AllMsg(msg) :-
+AllMsg(msg) :+
     clientIn(msg)
 
 NextMsgToAssign(choose(msg)) :-
     AllMsg(msg),
     !message(_, msg)
 
+NextID(max(i)) :-
+    message(i, _)
+
 message(i, msg) :+
     NextMsgToAssign(msg),
     NextID(j),
     i == j + 1
 
-NextID(max(i)) :-
-    message(i, _)
-
-// should i initialize nexttogo with 0?
+// should i initialize NextToGo with 0?
 NextToGo(i) :-
     lastMsgFinalized(j, _),
     i == j + 1
@@ -58,22 +55,21 @@ voteToParticipant@addr(i, msg) :~
     message(i, msg), # getting the next message
     NextToGo(i) # everything before it must be fully resolved
 
-EveryVote(i, msg, res, l_from) :-
+AllVotes(i, msg, res, l_from) :+
     voteFromParticipant(i, msg, res, l_from)
 
-YesVotes(i, msg, count(l_from)) :-
-    EveryVote(i, msg, res, l_from),
+NumYesVotes(i, msg, count(l_from)) :-
+    AllVotes(i, msg, res, l_from),
     success(res)
 
 VotedNo(i, msg) :-
-    EveryVote(i, msg, res, l_from),
+    AllVotes(i, msg, res, l_from),
     reject(res)
 
 # send commit message
 msgCommitted(i, msg) :-
-    YesVotes(i, msg, size),
-    unanimous(size),
-    !msgAborted(i, msg) # can't be already aborted
+    NumYesVotes(i, msg, size),
+    unanimous(size)
 
 instructToParticipant@addr(i, msg, type) :~
     msgCommitted(i, msg),
@@ -82,8 +78,7 @@ instructToParticipant@addr(i, msg, type) :~
 
 # send rollback message
 msgAborted(i, msg) :-
-    VotedNo(i, msg),
-    !msgCommitted(i, msg) # can't be already committed
+    VotedNo(i, msg)
 
 instructToParticipant@addr(i, msg, type) :~
     msgAborted(i, msg),
@@ -91,9 +86,12 @@ instructToParticipant@addr(i, msg, type) :~
     rollbackInstruct(type)
 
 # collecting acks before moving on
-Acks(i, msg, count(l_from))) :-
+AllAcks(i, msg, l_from) :+
     ackFromParticipant(i, msg, l_from)
 
+NumAcks(i, msg, count(l_from)) :-
+    AllAcks(i, msg, l_from)
+
 lastMsgFinalized(max(i), msg) :-
-    Acks(i, msg, size),
+    NumAcks(i, msg, size),
     unanimous(size)
