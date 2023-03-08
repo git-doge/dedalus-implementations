@@ -1,8 +1,8 @@
 // more notes/questions for david
 // - when it comes to partitioning, is the real culprit aggregating or persisting? i feel like it depends but i'd like to clarify *(aggr or negation, or cross join)
-// - since persisting isn't all bad, id imagine you can prolly just partition the storage of data if it doesn't break stuff
-// - do i have to design the coordinator with partitioning in mind? aka keeping persisting/aggregating to a min
-// - do i have to design EVERYTHING with partitioning in mind?
+// - since persisting isn't all bad, id imagine you can prolly just partition the storage of data if it doesn't break stuff *(this is true)
+// - do i have to design the coordinator with partitioning in mind? aka keeping persisting/aggregating to a min *(nah, it has properties that prevent it from being partitioned directly)
+// - do i have to design EVERYTHING with partitioning in mind? *(no, implement first then you can make optimizations later, just avoid unnecessary aggrs/negs)
 
 .input clientIn
 .output clientOut
@@ -23,10 +23,6 @@ reject(res)
 AllMsg(msg) :+ AllMsg(msg)
 AllVotes(i, msg, res, l_from) :+ AllVotes(i, msg, res, l_from)
 AllAcks(i, msg, l_from) :+ AllAcks(i, msg, l_from)
-// for persisting stuff what are thoughts on smthn like:
-// message(_*) :+ message(_*)
-// instead of: message(_, _) :+ message(_, _)
-// or even:
 message(i, msg) :+ message(i, msg)
 
 AllMsg(msg) :-
