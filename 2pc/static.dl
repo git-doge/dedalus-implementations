@@ -1,0 +1,13 @@
+.static coordinatorAddr[("127.0.0.1")]
+.static participantAddr[("127.0.0.2", "127.0.0.3")]
+
+.static local
+.static log
+
+.static unanimous[(2)]
+
+.static commitInstruct[("COMMIT")]
+.static rollbackInstruct[("ROLLBACK")]
+
+.static success[("SUCCESS")]
+.static reject[("REJECT")]

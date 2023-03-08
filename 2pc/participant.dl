@@ -1,0 +1,68 @@
+// noted
+// - can i do a max aggr over two separate facts (max out of either...)?
+// - can i spam my most recent ack
+
+// other notes
+// - "pipeline" type design structure
+
+.input voteToParticipant
+.output voteFromParticipant
+.input instructToParticipant
+.output ackFromParticipant
+
+// TODO
+.output verdictRequest
+.input verdict
+
+.output log
+
+AllMsg(i, msg) :-
+    voteToParticipant(i, msg)
+
+HighestID(max(i)) :-
+    AllMsg(i, _)
+
+voteFromParticipant@addr(i, msg, res, l_from) :~
+    coordinatorAddr(addr),
+    voteToParticipant(i, msg),
+    local(l_from),
+    success(res)
+
+// throw everything into log let it figure it out
+// committed(i, msg) :-
+//     instructToParticipant(i, msg, type),
+//     commitInstruct(type)
+
+// rolledBack(i, msg) :-
+//     instructToParticipant(i, msg, type),
+//     rollbackInstruct(type)
+
+finalized(i, msg) :-
+    committed(i, msg)
+
+finalized(i, msg) :-
+    rolledBack(i, msg)
+
+// no for partition reasons
+// HighestFinal(max(i), msg) :-
+//     finalized(i, msg)
+
+ackFromParticipant@addr(i, msg, l_from) :~
+    coordinatorAddr(addr),
+    local(l_from),
+    // use instructToParticipant
+    // finalized(i, msg), # ack the most relevant msg
+    // HighestID(i, _) # haven't received any new messages yet
+
+// throw into log channel
+// logQueue(min(i), msg) :-
+//     committed(i, msg), # message that came first
+//     !log(_, i, msg) # not already added to log
+
+// logSize(count(msg)) :-
+//     log(_, _, msg)
+
+// log(slot, i, msg) :+
+//     logQueue(i, msg),
+//     logSize(j),
+//     slot == j + 1
