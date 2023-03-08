@@ -1,6 +1,5 @@
 // more notes/questions for david
-// - i remembered why i had the "can't already be committed/aborted" rule, it was cuz i added that with timers in mind
-// - when it comes to partitioning, is the real culprit aggregating or persisting? i feel like it depends but i'd like to clarify
+// - when it comes to partitioning, is the real culprit aggregating or persisting? i feel like it depends but i'd like to clarify *(aggr or negation, or cross join)
 // - since persisting isn't all bad, id imagine you can prolly just partition the storage of data if it doesn't break stuff
 // - do i have to design the coordinator with partitioning in mind? aka keeping persisting/aggregating to a min
 // - do i have to design EVERYTHING with partitioning in mind?
@@ -30,7 +29,7 @@ AllAcks(i, msg, l_from) :+ AllAcks(i, msg, l_from)
 // or even:
 message(i, msg) :+ message(i, msg)
 
-AllMsg(msg) :+
+AllMsg(msg) :-
     clientIn(msg)
 
 NextMsgToAssign(choose(msg)) :-
@@ -55,7 +54,7 @@ voteToParticipant@addr(i, msg) :~
     message(i, msg), # getting the next message
     NextToGo(i) # everything before it must be fully resolved
 
-AllVotes(i, msg, res, l_from) :+
+AllVotes(i, msg, res, l_from) :-
     voteFromParticipant(i, msg, res, l_from)
 
 NumYesVotes(i, msg, count(l_from)) :-
@@ -86,7 +85,7 @@ instructToParticipant@addr(i, msg, type) :~
     rollbackInstruct(type)
 
 # collecting acks before moving on
-AllAcks(i, msg, l_from) :+
+AllAcks(i, msg, l_from) :-
     ackFromParticipant(i, msg, l_from)
 
 NumAcks(i, msg, count(l_from)) :-
