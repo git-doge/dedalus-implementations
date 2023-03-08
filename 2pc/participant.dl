@@ -1,10 +1,3 @@
-// noted
-// - can i do a max aggr over two separate facts (max out of either...)? *(youd have to max over both maxes)
-// - can i spam my most recent ack *(just send one back, we're assuming coordinator doesn't fail)
-
-// other notes
-// - "pipeline" type design structure
-
 .input voteToParticipant
 .output voteFromParticipant
 .input instructToParticipant
