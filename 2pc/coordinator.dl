@@ -1,92 +1,51 @@
-.input clientIn
-.output clientOut
+.input clientIn `repeat_iter([("vote".to_string(),),])`
+.output clientOut `for_each(|_:(String,)| println!("voted"))`
+.input logAddr `repeat_iter(log_addr.clone()) -> map(|p| (p,))`
 
-.output voteToParticipant
-.input voteFromParticipant
-.output instructToParticipant
-.input ackFromParticipant
+# EDBs
+.input indexedMsgs `repeat_iter([(1 as u32,),])`
+.input participants `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input success `repeat_iter([(true,),])`
+.input reject `repeat_iter([(false,),])`
+.input commitInstruct `repeat_iter([(true,),])`
+.input rollbackInstruct `repeat_iter([(false,),])`
 
-.output log_instruct
-.input instruct_logged
+.async voteToParticipant `map(|(node_id, v):(u32,(u32,String))| (node_id, serialize_to_bytes(v))) -> dest_sink(vote_to_participant_sink)` `null::<(u32,String,)>()`
 
-unanimous(size)
+.async voteFromParticipant `null::<(u32,String,bool,u32,)>()` `source_stream(vote_from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,String,bool,u32,)>(v.unwrap()))`
+.async logInstruct `map(|(node_id, v):(u32,(u32,String,bool,))| (node_id, serialize_to_bytes(v))) -> dest_sink(log_instruct_sink)` `null::<(u32,String,bool,)>()`
+.async instructLogged `null::<(u32,String,bool,)>()` `source_stream(instruct_logged_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async instructToParticipant `map(|(node_id, v):(u32,(u32,String,bool))| (node_id, serialize_to_bytes(v))) -> dest_sink(instruct_to_participant_sink)` `null::<(u32,String,bool,)>()`
 
-commitInstruct(type)
-rollbackInstruct(type)
+.async ackFromParticipant `null::<(u32,String,u32,)>()` `source_stream(ack_from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,String,u32,)>(v.unwrap()))`
 
-success(res)
-reject(res)
-
+# Persistence rules
 AllMsg(msg) :+ AllMsg(msg)
 AllVotes(i, msg, res, l_from) :+ AllVotes(i, msg, res, l_from)
 AllAcks(i, msg, l_from) :+ AllAcks(i, msg, l_from)
-message(i, msg) :+ message(i, msg)
+indexedMsgs(i, msg) :+ indexedMsgs(i, msg)
 
-AllMsg(msg) :-
-    clientIn(msg)
+# Phase 1a
+AllMsg(msg) :- clientIn(msg)
+NextMsgToAssign(choose(msg)) :- AllMsg(msg), !indexedMsgs(i, msg)
+MaxID(max(i)) :- indexedMsgs(i, msg)
+indexedMsgs(i+1, msg) :+ NextMsgToAssign(msg), MaxID(i)
+voteToParticipant@addr(i, msg) :~ participants(addr), NextMsgToAssign(msg), MaxID(i)
 
-NextMsgToAssign(choose(msg)) :-
-    AllMsg(msg),
-    !message(_, msg)
+# Phase 1b, Phase 2a
+AllVotes(i, msg, res, l_from) :- voteFromParticipant(i, msg, res, l_from)
+unanimous(count(addr)) :- participants(addr)
 
-NextID(max(i)) :-
-    message(i, _)
+NumYesVotes(i, msg, count(l_from)) :- AllVotes(i, msg, res, l_from), success(res)
+msgCommitted(i, msg) :- NumYesVotes(i, msg, size), unanimous(size)
+logInstruct@log(i, msg, type) :~ msgCommitted(i, msg), commitInstruct(type), logAddr(log)
 
-message(i, msg) :+
-    NextMsgToAssign(msg),
-    NextID(j),
-    i == j + 1
+msgAborted(i, msg) :- AllVotes(i, msg, res, l_from), reject(res)
+logInstruct@log(i, msg, type) :~ msgCommitted(i, msg), rollbackInstruct(type), logAddr(log)
 
-// should i initialize NextToGo with 0?
-NextToGo(i) :-
-    lastMsgFinalized(j, _),
-    i == j + 1
+instructToParticipant@addr(i, msg, type) :~ instructLoged(i, msg, type), participants(addr)
 
-voteToParticipant@addr(i, msg) :~
-    participantAddr(addr), # send to all participants
-    message(i, msg), # getting the next message
-    NextToGo(i) # everything before it must be fully resolved
-
-AllVotes(i, msg, res, l_from) :-
-    voteFromParticipant(i, msg, res, l_from)
-
-NumYesVotes(i, msg, count(l_from)) :-
-    AllVotes(i, msg, res, l_from),
-    success(res)
-
-VotedNo(i, msg) :-
-    AllVotes(i, msg, res, l_from),
-    reject(res)
-
-# message is committed
-msgCommitted(i, msg) :-
-    NumYesVotes(i, msg, size),
-    unanimous(size)
-
-log_instruct(i, msg, type) :- # commit record forced to stable storage
-    msgCommitted(i, msg),
-    commitInstruct(type)
-
-# message is rolled back
-msgAborted(i, msg) :-
-    VotedNo(i, msg)
-
-log_instruct(i, msg, type) :- # rollback record forced to stable storage
-    msgAborted(i, msg),
-    rollbackInstruct(type)
-
-# send instruct message to participants
-instructToParticipant@addr(i, msg, type) :~
-    participantAddr(addr),
-    instruct_logged(i, msg, type) # send instruct to participant after logging locally
-
-# collecting acks before moving on
-AllAcks(i, msg, l_from) :-
-    ackFromParticipant(i, msg, l_from)
-
-NumAcks(i, msg, count(l_from)) :-
-    AllAcks(i, msg, l_from)
-
-lastMsgFinalized(max(i), msg) :-
-    NumAcks(i, msg, size),
-    unanimous(size)
+# Phase 2b
+AllAcks(i, msg, l_from) :- ackFromParticipant(i, msg, l_from)
+NumAcks(i, msg, count(l_from)) :- AllAcks(i, msg, l_from)
+clientOut(i, msg) :- NumAcks(i, msg, size), unanimous(size)

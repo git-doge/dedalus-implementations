@@ -1,31 +1,23 @@
-.input voteToParticipant
-.output voteFromParticipant
-.input instructToParticipant
-.output ackFromParticipant
+.input myID `repeat_iter(my_id.clone()) -> map(|p| (p,))`
+.input coordinator `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input logAddr `repeat_iter(log_addr.clone()) -> map(|p| (p,))`
+# .input verdict `repeat_iter([(true,),])`
 
-.output verdictRequest
-.input verdict
+.async voteToParticipant `null::<(u32,String,)>()` `source_stream(vote_to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,String,)>(x.unwrap()))`
+.async verdictRequest `map(|(node_id, v):(u32,(u32,String,))| (node_id, serialize_to_bytes(v))) -> dest_sink(verdict_request_sink)` `null::<(u32,String,)>()`
+.async verdict `null::<(u32,String,bool,)>()` `source_stream(verdict_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async logVote `map(|(node_id, v):(u32,(u32,String,bool,))| (node_id, serialize_to_bytes(v))) -> dest_sink(log_vote_sink)` `null::<(u32,String,bool,)>()`
+.async voteLogged `null::<(u32,String,bool,)>()` `source_stream(vote_logged_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async voteFromParticipant `map(|(node_id, v):(u32,(u32,String,bool,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(vote_from_participant_sink)` `null::<(u32,String,bool,u32)>()`
 
-.output log_vote
-.input vote_logged
-.output log_instruct
-.input instruct_logged
+.async instructToParticipant `null::<(u32,String,bool,)>()` `source_stream(instruct_to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async logInstruct `map(|(node_id, v):(u32,(u32,String,bool,))| (node_id, serialize_to_bytes(v))) -> dest_sink(log_instruct_sink)` `null::<(u32,String,bool,)>()`
+.async instructLogged `null::<(u32,String,bool,)>()` `source_stream(instruct_logged_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async ackFromParticipant `map(|(node_id, v):(u32,(u32,String,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(ack_from_participant_sink)` `null::<(u32,String,u32,)>()`
 
-verdictRequest(i, msg) :-
-    voteToParticipant(i, msg)
+verdictRequest@log(i, msg) :~ voteToParticipant(i, msg), logAddr(log)
+logVote@log(i, msg, res) :~ verdict(i, msg, res), logAddr(log)
+voteFromParticipant@addr(i, msg, res, l_from) :~ voteLogged(i, msg, res), coordinator(addr), myID(l_from)
 
-log_vote(i, msg, res) :- # vote forced to stable storage
-    verdict(i, msg, res)
-
-voteFromParticipant@addr(i, msg, res, l_from) :~
-    coordinatorAddr(addr),
-    local(l_from),
-    vote_logged(i, msg, res) # send vote after it's been logged locally
-
-log_instruct(i, msg, type) :- # instruct forced to stable storage
-    instructToParticipant(i, msg, type)
-
-ackFromParticipant@addr(i, msg, l_from) :~
-    coordinatorAddr(addr),
-    local(l_from),
-    instruct_logged(i, msg, _) # send ack after instruct has been logged locally
+logInstruct@log(i, msg, type) :~ instructToParticipant(i, msg, type), logAddr(log)
+ackFromParticipant@addr(i, msg, l_from) :~ instructLogged(i, msg, _), coordinator(addr), myID(l_from)
