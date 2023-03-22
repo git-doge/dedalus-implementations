@@ -6,20 +6,26 @@
 .output verdictRequest
 .input verdict
 
-.output log
+.output log_vote
+.input vote_logged
+.output log_instruct
+.input instruct_logged
 
 verdictRequest(i, msg) :-
     voteToParticipant(i, msg)
 
+log_vote(i, msg, res) :- # vote forced to stable storage
+    verdict(i, msg, res)
+
 voteFromParticipant@addr(i, msg, res, l_from) :~
     coordinatorAddr(addr),
     local(l_from),
-    verdict(i, msg, res)
+    vote_logged(i, msg, res) # send vote after it's been logged locally
+
+log_instruct(i, msg, type) :- # instruct forced to stable storage
+    instructToParticipant(i, msg, type)
 
 ackFromParticipant@addr(i, msg, l_from) :~
     coordinatorAddr(addr),
     local(l_from),
-    instructToParticipant(i, msg, _)
-
-log(i, msg, type) :-
-    instructToParticipant(i, msg, type) # the log channel will sort everything out
+    instruct_logged(i, msg, _) # send ack after instruct has been logged locally

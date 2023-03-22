@@ -6,6 +6,9 @@
 .output instructToParticipant
 .input ackFromParticipant
 
+.output log_instruct
+.input instruct_logged
+
 unanimous(size)
 
 commitInstruct(type)
@@ -55,24 +58,27 @@ VotedNo(i, msg) :-
     AllVotes(i, msg, res, l_from),
     reject(res)
 
-# send commit message
+# message is committed
 msgCommitted(i, msg) :-
     NumYesVotes(i, msg, size),
     unanimous(size)
 
-instructToParticipant@addr(i, msg, type) :~
+log_instruct(i, msg, type) :- # commit record forced to stable storage
     msgCommitted(i, msg),
-    participantAddr(addr),
     commitInstruct(type)
 
-# send rollback message
+# message is rolled back
 msgAborted(i, msg) :-
     VotedNo(i, msg)
 
-instructToParticipant@addr(i, msg, type) :~
+log_instruct(i, msg, type) :- # rollback record forced to stable storage
     msgAborted(i, msg),
-    participantAddr(addr),
     rollbackInstruct(type)
+
+# send instruct message to participants
+instructToParticipant@addr(i, msg, type) :~
+    participantAddr(addr),
+    instruct_logged(i, msg, type) # send instruct to participant after logging locally
 
 # collecting acks before moving on
 AllAcks(i, msg, l_from) :-
