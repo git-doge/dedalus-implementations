@@ -1,25 +1,19 @@
-.input voteToParticipant
-.output voteFromParticipant
-.input instructToParticipant
-.output ackFromParticipant
+.input myID `repeat_iter(my_id.clone()) -> map(|p| (p,))`
+.input coordinator `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input verdict `repeat_iter([(true,),])`
 
-.output verdictRequest
-.input verdict
+.async voteToParticipant `null::<(u32,String,)>()` `source_stream(vote_to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,String,)>(x.unwrap()))`
+.async voteFromParticipant `map(|(node_id, v):(u32,(u32,String))| (node_id, serialize_to_bytes(v))) -> dest_sink(vote_from_participant_sink)` `null::<(u32,String,)>()`
+.async instructToParticipant `null::<(u32,String,bool,)>()` `source_stream(instruct_to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,String,bool,)>(x.unwrap()))`
+.async ackFromParticipant `map(|(node_id, v):(u32,(u32,String,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(ack_from_participant_sink)` `null::<(u32,String,u32,)>()`
 
-.output log
+# .output verdictRequest
+# .input verdict
 
-verdictRequest(i, msg) :-
-    voteToParticipant(i, msg)
+# .output log
 
-voteFromParticipant@addr(i, msg, res, l_from) :~
-    coordinatorAddr(addr),
-    local(l_from),
-    verdict(i, msg, res)
+# verdictRequest(i, msg) :- voteToParticipant(i, msg)
+voteFromParticipant@addr(i, msg, res, l_from) :~ voteToParticipant(i, msg), coordinator(addr), myID(l_from), verdict(res)
+ackFromParticipant@addr(i, msg, l_from) :~ instructToParticipant(i, msg, b), coordinator(addr), myID(l_from)
 
-ackFromParticipant@addr(i, msg, l_from) :~
-    coordinatorAddr(addr),
-    local(l_from),
-    instructToParticipant(i, msg, _)
-
-log(i, msg, type) :-
-    instructToParticipant(i, msg, type) # the log channel will sort everything out
+# log(i, msg, type) :- instructToParticipant(i, msg, type) # the log channel will sort everything out
