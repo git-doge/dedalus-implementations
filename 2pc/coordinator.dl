@@ -1,8 +1,8 @@
 .input clientIn `repeat_iter([("vote".to_string(),),])`
-.output clientOut `for_each(|_:(String,)| println!("voted"))`
+.output clientOut `for_each(|(i,msg):(u32,String,)| println!("committed {:?}: {:?}", i, msg))`
 
 # EDBs
-.input indexedMsgs `repeat_iter([(1 as u32,),])`
+.input startIndex `repeat_iter([(1 as u32,),])`
 .input participants `repeat_iter(peers.clone()) -> map(|p| (p,))`
 .input success `repeat_iter([(true,),])`
 .input reject `repeat_iter([(false,),])`
@@ -15,19 +15,22 @@
 .async ackFromParticipant `null::<(u32,String,u32,)>()` `source_stream(ack_from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,String,u32,)>(v.unwrap()))`
 
 # Persistence rules
-AllMsg(msg) :+ AllMsg(msg)
+AllMsg(msg) :+ AllMsg(msg), !NextMsgToAssign(msg) # only store messages that are unassigned
 AllVotes(i, msg, res, l_from) :+ AllVotes(i, msg, res, l_from)
 AllAcks(i, msg, l_from) :+ AllAcks(i, msg, l_from)
-indexedMsgs(i, msg) :+ indexedMsgs(i, msg)
+indices(i) :+ indices(i)
+
+# Non-EDBs with initialized values, to avoid recursion over inputs
+indices(i) :- startIndex(i)
 
 # Phase 1a
 AllMsg(msg) :- clientIn(msg)
-NextMsgToAssign(choose(msg)) :- AllMsg(msg), !indexedMsgs(i, msg)
-MaxID(max(i)) :- indexedMsgs(i, msg)
-indexedMsgs(i+1, msg) :+ NextMsgToAssign(msg), MaxID(i)
+NextMsgToAssign(choose(msg)) :- AllMsg(msg)
+MaxID(max(i)) :- indices(i)
+indices(i+1) :+ NextMsgToAssign(msg), MaxID(i)
 voteToParticipant@addr(i, msg) :~ participants(addr), NextMsgToAssign(msg), MaxID(i)
 
-# Phase 1b, Phase 2a
+// # Phase 1b, Phase 2a
 AllVotes(i, msg, res, l_from) :- voteFromParticipant(i, msg, res, l_from)
 unanimous(count(addr)) :- participants(addr)
 
@@ -36,9 +39,10 @@ msgCommitted(i, msg) :- NumYesVotes(i, msg, size), unanimous(size)
 instructToParticipant@addr(i, msg, type) :~ msgCommitted(i, msg), participants(addr), commitInstruct(type)
 
 msgAborted(i, msg) :- AllVotes(i, msg, res, l_from), reject(res)
-instructToParticipant@addr(i, msg, type) :~ msgAborted(i, msg), participants(addr), rollbackInstruct(type)
+instructToParticipant@addr(i, msg, type) :~ msgAborted(i, msg), participants(addr),rollbackInstruct(type)
 
 # Phase 2b
 AllAcks(i, msg, l_from) :- ackFromParticipant(i, msg, l_from)
 NumAcks(i, msg, count(l_from)) :- AllAcks(i, msg, l_from)
-clientOut(i, msg) :- NumAcks(i, msg, size), unanimous(size)
+outputted(i) :+ NumAcks(i, msg, size), unanimous(size) # only output to stdOut once
+clientOut(i, msg) :- NumAcks(i, msg, size), unanimous(size), !outputted(i)
