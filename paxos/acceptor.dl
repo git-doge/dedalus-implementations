@@ -3,13 +3,13 @@
 .input id `repeat_iter(my_id.clone()) -> map(|p| (p,))`
 
 # p1a: proposerID, ballotID, ballotNum
-.async p1a `null::<(u32,u32,u32,)>()` `source_stream(p1a_source) -> map(|v| deserialize_from_bytes::<(u32,u32,u32,)>(v.unwrap()))`
+.async p1a `null::<(u32,u32,u32,)>()` `source_stream(p1a_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,)>(v.unwrap()).unwrap())`
 # p1b: acceptorID, logSize, ballotID, ballotNum, maxBallotID, maxBallotNum
 .async p1b `map(|(node_id, v):(u32,(u32,u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(p1b_sink)` `null::<(u32,u32,u32,u32,u32,u32)>()`
 # p1bLog: acceptorID, payload, slot, payloadBallotID, payloadBallotNum, ballotID, ballotNum
 .async p1bLog `map(|(node_id, v):(u32,(u32,String,u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(p1b_log_sink)` `null::<(u32,String,u32,u32,u32,u32,u32)>()`
 # p2a: proposerID, payload, slot, ballotID, ballotNum
-.async p2a `null::<(u32,String,u32,u32,u32,)>()` `source_stream(p2a_source) -> map(|v| deserialize_from_bytes::<(u32,String,u32,u32,u32,)>(v.unwrap()))`
+.async p2a `null::<(u32,String,u32,u32,u32,)>()` `source_stream(p2a_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,String,u32,u32,u32,)>(v.unwrap()).unwrap())`
 # p2b: acceptorID, payload, slot, ballotID, ballotNum, maxBallotID, maxBallotNum
 .async p2b `map(|(node_id, v):(u32,(u32,String,u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(p2b_sink)` `null::<(u32,String,u32,u32,u32,u32,u32)>()`
 ######################## end relation definitions
@@ -27,8 +27,9 @@ MaxBallotNum(max(num)) :- ballots(id, num)
 MaxBallot(max(id), num) :- MaxBallotNum(num), ballots(id, num)
 LogSize(count(slot)) :- log(p, slot, ballotID, ballotNum)
 p1b@pid(i, size, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), id(i), LogSize(size), MaxBallot(maxBallotID, maxBallotNum)
+p1b@pid(i, 0, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), id(i), !LogSize(size), MaxBallot(maxBallotID, maxBallotNum)
 
-LogEntryMaxBallotNum(slot, max(ballotNum)) :- log(p, slot, ballotID, ballotNum, l, t)
+LogEntryMaxBallotNum(slot, max(ballotNum)) :- log(p, slot, ballotID, ballotNum)
 LogEntryMaxBallot(slot, max(ballotID), ballotNum) :- LogEntryMaxBallotNum(slot, ballotNum), log(p, slot, ballotID, ballotNum)
 
 # send back entire log 
