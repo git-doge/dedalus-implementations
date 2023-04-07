@@ -1,0 +1,50 @@
+# Assume num_acceptor_groups. Assume acceptors are a table of (group_id, index_in_group, id)
+# Assume thrifty_quorum = f+1
+# Import fastrand
+
+######################## relation definitions
+# EDB
+.input id `repeat_iter(my_id.clone()) -> map(|p| (p,))`
+.input quorum `repeat_iter([(quorum,),])`
+.input acceptors `repeat_iter(acceptors.clone()) -> map(|p| (p,))`
+.input numAcceptorGroups `repeat_iter([(num_acceptor_groups,),])` 
+.input thriftyQuorum `repeat_iter(vec![()]) -> flat_map(|_| ((..thrifty_quorum).map(fastrand::u32(..num_acceptors)),))`
+
+# Debug
+.output p2aOut `for_each(|(a,pid,payload,slot,id,num):(u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} received p2a: [{:?},{:?},{:?},{:?},{:?}]", a, pid, payload, slot, id, num))`
+.output p2bOut `for_each(|(pid,a,payload,slot,id,num,max_id,max_num):(u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p2b to {:?}: [{:?},{:?},{:?},{:?},{:?},{:?},{:?}]]", a, pid, a, payload, slot, id, num, max_id, max_num))`
+
+# p2a: proposerID, payload, slot, ballotID, ballotNum
+.async p2aIn `null::<(u32,u32,u32,u32,u32,)>()` `source_stream(p2a_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,u32,)>(v.unwrap()).unwrap())`
+.async p2aBroadcast `map(|(node_id, v):(u32,(u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(p2a_sink)` `null::<(u32,u32,u32,u32,u32)>()` 
+# p2b: acceptorID, payload, slot, ballotID, ballotNum, maxBallotID, maxBallotNum
+.async p2bU `null::<(u32,u32,u32,u32,u32,u32,u32)>()` `source_stream(p2b_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,u32,u32,u32,)>(v.unwrap()).unwrap())`
+######################## end relation definitions
+
+
+p2b(a, p, s, i, n, mi, mn) :- p2bU(a, p, s, i, n, mi, mn)
+p2b(a, p, s, i, n, mi, mn) :+ p2b(a, p, s, i, n, mi, mn), !commit(p2, s) # drop all p2bs if slot s is committed
+
+
+# Debug
+p2aOut(a, i, payload, slot, id, num) :- p2aIn(pid, payload, slot, id, num), id(i)
+p2bOut(i, a, payload, slot, id, num, maxID, maxNum) :- id(i), p2bU(a, payload, slot, id, num, maxID, maxNum)
+
+
+######################## broadcast p2a
+slotToPartition(slot, slot % n) :- p2aIn(pid, payload, slot, id, num), numAcceptorGroups(n)
+p2aBroadcast@a(i, payload, slot, id, num) :~ p2aIn(pid, payload, slot, id, num), slotToPartition(slot, group), thriftyQuorum(indexInGroup), acceptors(group, indexInGroup, a), id(i)
+######################## end broadcast p2a 
+
+
+
+######################## process p2b
+CountMatchingP2bs(payload, slot, count(acceptorID), i, num) :- p2b(acceptorID, payload, slot, i, num, payloadBallotID, payloadBallotNum)
+commit(payload, slot) :- CountMatchingP2bs(payload, slot, c, i, num), quorum(size), (c >= size)
+// clientOut(payload, slot) :- commit(payload, slot)
+NumCommits(count(slot)) :- commit(payload, slot)
+
+totalCommitted(new) :+ !totalCommitted(prev), NumCommits(new)
+totalCommitted(prev) :+ totalCommitted(prev), !NumCommits(new)
+totalCommitted(prev + new) :+ totalCommitted(prev), NumCommits(new)
+######################## end process p2b

@@ -1,5 +1,6 @@
 .input myID `repeat_iter(my_id.clone()) -> map(|p| (p,))`
 .input leader `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input forward `repeat_iter(vec![()]) -> map(|_| ())` #TODO implement partitioning function
 .async voteToReplica `null::<(u32,)>()` `source_stream(to_replica_source) -> map(|x| deserialize_from_bytes::<(u32,)>(x.unwrap()).unwrap())`
 .async voteFromReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(from_replica_sink)` `null::<(u32,u32,)>()`
             
