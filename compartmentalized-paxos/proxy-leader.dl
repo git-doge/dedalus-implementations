@@ -1,14 +1,15 @@
-# Assume num_acceptor_groups. Assume acceptors are a table of (group_id, index_in_group, id)
-# Assume thrifty_quorum = f+1
-# Import fastrand
+# Differences from paxos:
+# 1. Assume num_acceptor_groups. Assume acceptors are a table of (group_id, index_in_group, id)
+# 2. Assume thrifty_quorum = f+1
+# 3. Import fastrand
 
 ######################## relation definitions
 # EDB
 .input id `repeat_iter(my_id.clone()) -> map(|p| (p,))`
 .input quorum `repeat_iter([(quorum,),])`
-.input acceptors `repeat_iter(acceptors.clone()) -> map(|p| (p,))`
+.input acceptorStartIDs `repeat_iter(acceptor_start_ids.clone()) -> map(|p| (p,))` # Assume = 0,n,2n,...,n*m, for n acceptors and m partitions
 .input numAcceptorGroups `repeat_iter([(num_acceptor_groups,),])` 
-.input thriftyQuorum `repeat_iter(vec![()]) -> flat_map(|_| ((..thrifty_quorum).map(fastrand::u32(..num_acceptors)),))`
+.input thriftyQuorum `repeat_iter(vec![()]) -> flat_map(|_| ((..thrifty_quorum).map(fastrand::u32(..num_acceptors)),))` # TODO choose from IDs
 
 # Debug
 .output p2aOut `for_each(|(a,pid,payload,slot,id,num):(u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} received p2a: [{:?},{:?},{:?},{:?},{:?}]", a, pid, payload, slot, id, num))`
@@ -27,13 +28,13 @@ p2b(a, p, s, i, n, mi, mn) :+ p2b(a, p, s, i, n, mi, mn), !commit(p2, s) # drop 
 
 
 # Debug
-p2aOut(a, i, payload, slot, id, num) :- p2aIn(pid, payload, slot, id, num), id(i)
-p2bOut(i, a, payload, slot, id, num, maxID, maxNum) :- id(i), p2bU(a, payload, slot, id, num, maxID, maxNum)
+// p2aOut(a, i, payload, slot, id, num) :- p2aIn(pid, payload, slot, id, num), id(i)
+// p2bOut(i, a, payload, slot, id, num, maxID, maxNum) :- id(i), p2bU(a, payload, slot, id, num, maxID, maxNum)
 
 
 ######################## broadcast p2a
 slotToPartition(slot, slot % n) :- p2aIn(pid, payload, slot, id, num), numAcceptorGroups(n)
-p2aBroadcast@a(i, payload, slot, id, num) :~ p2aIn(pid, payload, slot, id, num), slotToPartition(slot, group), thriftyQuorum(indexInGroup), acceptors(group, indexInGroup, a), id(i)
+p2aBroadcast@a(i, payload, slot, id, num) :~ p2aIn(pid, payload, slot, id, num), slotToPartition(slot, group), thriftyQuorum(aid), acceptorStartIDs(aid), id(i)
 ######################## end broadcast p2a 
 
 

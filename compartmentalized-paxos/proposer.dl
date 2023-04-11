@@ -120,8 +120,7 @@ P1bLargestEntryBallotNum(slot, max(payloadBallotNum)) :- RelevantP1bLogs(accepto
 P1bLargestEntryBallot(slot, max(payloadBallotID), payloadBallotNum) :- P1bLargestEntryBallotNum(slot, payloadBallotNum), RelevantP1bLogs(acceptorID, payload, slot, payloadBallotID, payloadBallotNum)
 # makes sure that p2as cannot be sent yet; otherwise resent slots might conflict. Once p2as can be sent, a new p1b log might tell us to propose a payload for the same slot we propose (in parallel) for p2a, which violates an invariant.
 ResentLog(payload, slot) :- P1bLargestEntryBallot(slot, payloadBallotID, payloadBallotNum), P1bMatchingEntry(payload, slot, c, payloadBallotID, payloadBallotNum), !CommittedLog(otherPayload, slot), IsLeader(), !nextSlot(s)
-slotToProxy(s, s % n) :- ResentLog(payload, s), numProxyLeaders(n)
-p2a@proxy(i, payload, slot, i, num) :~ ResentLog(payload, slot), id(i), ballot(num), slotToProxy(slot, proxy)
+p2a@(slot % n)(i, payload, slot, i, num) :~ ResentLog(payload, slot), id(i), ballot(num), numProxyLeaders(n)
 
 # hole filling: if a slot is not in ResentEntries or proposedLog but it's smaller than max, then propose noop. Provides invariant that all holes are filled (proposed) by next timestep and we can just assign slots as current slot+1
 ProposedSlots(slot) :- startSlot(slot)
@@ -130,8 +129,7 @@ ProposedSlots(slot) :- ResentLog(payload, slot)
 MaxProposedSlot(max(slot)) :- ProposedSlots(slot)
 PrevSlots(s) :- MaxProposedSlot(maxSlot), less_than(s, maxSlot)
 FilledHoles(no, s) :- noop(no), !ProposedSlots(s), PrevSlots(s), IsLeader(), !nextSlot(s2)
-slotToProxy(s, s % n) :- FilledHoles(no, s), numProxyLeaders(n)
-p2a@proxy(i, no, slot, i, num) :~ FilledHoles(no, slot), id(i), ballot(num), slotToProxy(slot, proxy)
+p2a@(slot % n)(i, no, slot, i, num) :~ FilledHoles(no, slot), id(i), ballot(num), numProxyLeaders(n)
 
 # To assign values sequential slots after reconciling p1bs, start at max+1
 nextSlot(s+1) :+ IsLeader(), MaxProposedSlot(s), !nextSlot(s2)
@@ -142,8 +140,8 @@ nextSlot(s+1) :+ IsLeader(), MaxProposedSlot(s), !nextSlot(s2)
 ######################## send p2as 
 # assign a slot
 ChosenPayload(choose(payload)) :- clientIn(payload), nextSlot(s), IsLeader() # drop all payloads that we can't handle in this tick by not persisting clientIn
-slotToProxy(s, s % n) :- nextSlot(s), numProxyLeaders(n)
-p2a@proxy(i, payload, slot, i, num) :~ ChosenPayload(payload), nextSlot(slot), id(i), ballot(num), slotToProxy(slot, proxy)
+slotToProxy(s, s % n) :- nextSlot(s)
+p2a@(slot % n)(i, payload, slot, i, num) :~ ChosenPayload(payload), nextSlot(slot), id(i), ballot(num), numProxyLeaders(n)
 # Increment the slot if a payload was chosen
 nextSlot(s+1) :+ ChosenPayload(payload), nextSlot(s)
 # Don't increment the slot if no payload was chosen, but we are still the leader
