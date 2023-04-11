@@ -1,16 +1,15 @@
 .output stdout `for_each(|s:(u32,)| println!("committed: {:?}", s))`
-.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input numParticipants `repeat_iter(num_participants.clone()) -> map(|p| (p,))` # Assume = 0,1,2...num_participants
 
 .input periodic `source_stream(periodic_source) -> map(|_| ())`
-.output throughputOut `for_each(|(num,):(u32,)| println!("committed {:?} entries", num))`
+.output throughputOut `for_each(|(num,):(u32,)| println!("{:?}", num))`
 
-.async voteFromReplica `null::<(u32,u32,)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+.async voteFromParticipant `null::<(u32,u32,)>()` `source_stream(from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
         
-allVotes(l, v) :- voteFromReplica(l, v)
+allVotes(l, v) :- voteFromParticipant(l, v)
 allVotes(l, v) :+ allVotes(l, v), !committed(v)
 voteCounts(count(l), v) :- allVotes(l, v)
-numReplicas(count(addr)) :- replicas(addr)
-committed(v) :- voteCounts(n, v), numReplicas(n)
+committed(v) :- voteCounts(n, v), numParticipants(n)
 // stdout(v) :- committed(v)
 
 NumCommits(count(v)) :- committed(v)

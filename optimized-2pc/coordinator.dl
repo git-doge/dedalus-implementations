@@ -1,0 +1,15 @@
+.input clientIn `repeat_iter(vec![()]) -> map(|_| (context.current_tick() as u32,))`
+
+# EDBs
+.input startSlot `repeat_iter([(0 as u32,),])`
+.input numVoteRequesters `repeat_iter([(num_participant_partitions,),])` # Assume id = 0,1,2...
+
+.async voteToVoteRequester `map(|(node_id, v):(u32,(u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(vote_to_vote_requester_sink)` `null::<(u32,u32,)>()`
+
+# Phase 1a
+nextSlot(s) :+ !nextSlot(s2), startSlot(s)
+nextSlot(s+1) :+ nextSlot(s), ChosenPayload(payload)
+nextSlot(s) :+ nextSlot(s), !ChosenPayload(payload)
+
+ChosenPayload(choose(payload)) :- clientIn(payload)
+voteToVoteRequester@addr(s, p) :~ participants(addr), ChosenPayload(p), nextSlot(s) # TODO partition

@@ -1,0 +1,4 @@
+.input numParticipantPartitions `repeat_iter([(num_participant_partitions,),])` # Assume id = 0,1,2...
+.async voteToVoteRequester `null::<(u32,u32,)>()` `source_stream(vote_to_vote_requester_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+
+voteToParticipant@(s % n)(s, p) :~ voteToVoteRequester(s, p), numParticipantPartitions(n)
