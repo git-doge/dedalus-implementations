@@ -115,7 +115,7 @@ P1bLogFromAcceptor(partitionID, acceptorID, count(slot)) :- RelevantP1bLogs(part
 P1bAcceptorLogReceived(partitionID, acceptorID) :- P1bLogFromAcceptor(partitionID, acceptorID, logSize), RelevantP1bs(partitionID, acceptorID, logSize)
 P1bAcceptorLogReceived(partitionID, acceptorID) :- RelevantP1bs(partitionID, acceptorID, logSize), (logSize == 0)
 P1bNumAcceptorPartitionsLogReceived(count(partitionID), acceptorID) :- P1bAcceptorLogReceived(partitionID, acceptorID)
-P1bNumAcceptorsLogReceived(n) :- P1bNumAcceptorPartitionsLogReceived(n, acceptorID), numAcceptorGroups(n)
+P1bNumAcceptorsLogReceived(count(acceptorID)) :- P1bNumAcceptorPartitionsLogReceived(n, acceptorID), numAcceptorGroups(n)
 IsLeader() :- P1bNumAcceptorsLogReceived(c), quorum(size), (c >= size), HasLargestBallot()
 
 P1bMatchingEntry(payload, slot, count(acceptorID), payloadBallotID, payloadBallotNum) :- RelevantP1bLogs(partitionID, acceptorID, payload, slot, payloadBallotID, payloadBallotNum)
@@ -162,8 +162,8 @@ p2bUP(mi, mn, t1) :+ p2bUP(mi, mn, t1) # Persist
 recvSize(count(*), t1) :- p2bUP(mi, mn, t1) # Count. Since there's only 1 r, recvSize = rCount.
 inputs(n, t1, prevT) :+ inputsU(n, t1, prevT)
 inputs(n, t1, prevT) :+ inputs(n, t1, prevT) # TODO: experiment with replacing with .persist
-canSeal(t1) :- recvSize(n, t1), inputs(n, t1, prevT), sealed(prevT) # Check if all inputs of this batch have been received
-canSeal(t1) :- recvSize(n, t1), inputs(n, t1, prevT), (prevT == 0)
+canSeal(t1) :- recvSize(n, t1), inputs(n, t1, prevT), sealed(prevT), !sealed(t1) # Check if all inputs of this batch have been received
+canSeal(t1) :- recvSize(n, t1), inputs(n, t1, prevT), !sealed(t2), (prevT == 0)
 sealed(t1) :+ canSeal(t1)
 sealed(t1) :+ sealed(t1) # TODO: experiment with replacing with .persist
 p2bSealed(mi, mn) :- p2bUP(mi, mn, t1), canSeal(t1)

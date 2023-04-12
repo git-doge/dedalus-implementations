@@ -154,9 +154,10 @@ CountMatchingP2bs(payload, slot, count(acceptorID), i, num) :- p2b(acceptorID, p
 commit(payload, slot) :- CountMatchingP2bs(payload, slot, c, i, num), quorum(size), (c >= size)
 allCommit(slot) :- CountMatchingP2bs(payload, slot, c, i, num), fullQuorum(c)
 // clientOut(payload, slot) :- commit(payload, slot)
-NumCommits(count(slot)) :- commit(payload, slot)
+MaxCommits(max(slot)) :- commit(payload, slot)
 
-totalCommitted(new) :+ !totalCommitted(prev), NumCommits(new)
-totalCommitted(prev) :+ totalCommitted(prev), !NumCommits(new)
-totalCommitted(prev + new) :+ totalCommitted(prev), NumCommits(new)
+totalCommitted(new) :+ !totalCommitted(prev), MaxCommits(new)
+totalCommitted(prev) :+ totalCommitted(prev), !MaxCommits(new)
+totalCommitted(new) :+ totalCommitted(prev), MaxCommits(new), (prev < new)
+totalCommitted(prev) :+ totalCommitted(prev), MaxCommits(new), (prev >= new)
 ######################## end process p2bs

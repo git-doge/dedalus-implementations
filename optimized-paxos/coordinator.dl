@@ -5,8 +5,8 @@
 .input acceptorPartitions `repeat_iter(acceptor_partitions.clone()) -> map(|p| (p,))`
 
 # Debug
-.output p1aVoteOut `for_each(|(i, aid, pid, ballot_id, ballot_num):(u32,u32,u32,u32,u32,)| println!("coordinator {:?} received p1aVote from acceptor: [{:?},{:?},{:?},{:?}]]", i, aid, pid, ballot_id, ballot_num))`
-.output p1aCommitOut `for_each(|(i, aid, o, pid, ballot_id, ballot_num):(u32,u32,u32,u32,u32,u32,)| println!("coordinator {:?} sent p1aVote to acceptor {:?}: [{:?},{:?},{:?},{:?}]]", i, aid, o, pid, ballot_id, ballot_num))`
+.output p1aVoteOut `for_each(|(i, aid, pid, ballot_id, ballot_num):(u32,u32,u32,u32,u32,)| println!("coordinator {:?} received p1aVote from acceptor: [{:?},{:?},{:?},{:?}]", i, aid, pid, ballot_id, ballot_num))`
+.output p1aCommitOut `for_each(|(i, aid, o, pid, ballot_id, ballot_num):(u32,u32,u32,u32,u32,u32,)| println!("coordinator {:?} sent p1aVote to acceptor {:?}: [{:?},{:?},{:?},{:?}]", i, aid, o, pid, ballot_id, ballot_num))`
 
 # p1aVote: acceptorPartitionID, proposerID, ballotID, ballotNum
 .async p1aVoteU `null::<(u32,u32,u32,u32,)>()` `source_stream(p1a_vote_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,)>(v.unwrap()).unwrap())`

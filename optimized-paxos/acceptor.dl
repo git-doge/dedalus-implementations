@@ -13,7 +13,7 @@
 .output p1bLogOut `for_each(|(pid,p,a,payload,slot,payload_id,payload_num,id,num):(u32,u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p1bLog to proposer {:?}: [{:?},{:?},{:?},{:?},{:?},{:?},{:?},{:?}]", p, pid, p, a, payload, slot, payload_id, payload_num, id, num))`
 .output p2aOut `for_each(|(p,pid,payload,slot,id,num):(u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} received p2a from p2aProxyLeader: [{:?},{:?},{:?},{:?},{:?}]", p, pid, payload, slot, id, num))`
 .output p2aSealedOut `for_each(|(p,pid,payload,slot,id,num):(u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sealed p2a: [{:?},{:?},{:?},{:?},{:?}]", p, pid, payload, slot, id, num))`
-.output p2bOut `for_each(|(p,pid,a,payload,slot,id,num,max_id,max_num):(u32,u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p2b to {:?} p2bProxyLeader: [{:?},{:?},{:?},{:?},{:?},{:?},{:?}]]", p, pid, a, payload, slot, id, num, max_id, max_num))`
+.output p2bOut `for_each(|(p,pid,a,payload,slot,id,num,max_id,max_num):(u32,u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p2b to {:?} p2bProxyLeader: [{:?},{:?},{:?},{:?},{:?},{:?},{:?}]", p, pid, a, payload, slot, id, num, max_id, max_num))`
 # For some reason Hydroflow can't infer the type of p2aSealed, so we define it manually:
 .input p2aSealed `null::<(u32,u32,u32,u32,u32)>()`
 
@@ -92,7 +92,7 @@ p1aCommit(o, pid, id, num) :+ p1aCommit(o, pid, id, num)
 receivedI(o) :- p1aCommit(o, pid, id, num)
 nextToProcess(o+1) :- maxProcessedI(o)
 p1aSealed(o, pid, id, num) :- nextToProcess(o), p1aCommit(o, pid, id, num)
-p1aSealed(o, pid, id, num) :- !nextToProcess(o), p1aCommit(o, pid, id, num), (o == 0)
+p1aSealed(o, pid, id, num) :- !nextToProcess(o2), p1aCommit(o, pid, id, num), (o == 0)
 processedI(o) :+ p1aSealed(o, pid, id, num)
 outstandingVote() :- p1a(pid, id, num), !p1aCommit(o, pid, id, num)
 
