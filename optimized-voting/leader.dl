@@ -1,5 +1,14 @@
 .input clientIn `repeat_iter(vec![()]) -> map(|_| (context.current_tick() as u32,))`
-.input numBroadcasterPartitions `repeat_iter(num_broadcaster_partitions.clone()) -> map(|p| (p,))`
+.input numBroadcasterPartitions `repeat_iter([(num_broadcaster_partitions,),])`
+// .input flushEveryN `repeat_iter([(flush_every_n,),])`
 .async toBroadcaster `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_broadcaster_sink)` `null::<(u32,)>()`
+.input periodic `source_stream(periodic_source) -> map(|_| ())`
+.output throughputOut `for_each(|(num,):(u32,)| println!("tick,{:?}", num))`
         
 toBroadcaster@(v%n)(v) :~ clientIn(v), numBroadcasterPartitions(n)
+throughputOut(num) :- periodic(), clientIn(num)
+// toBroadcasterBuffer(v%n, v) :- clientIn(v), numBroadcasterPartitions(n)
+// bufferCount(count(*)) :- toBroadcasterBuffer(_,_)
+// bufferFull() :- bufferCount(n), flushEveryN(m), (n >= m)
+// toBroadcaster@dest(v) :~ toBroadcasterBuffer(dest, v), bufferFull()
+// toBroadcasterBuffer(dest, v) :+ toBroadcasterBuffer(dest, v), !bufferFull()

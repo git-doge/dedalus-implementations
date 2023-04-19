@@ -3,7 +3,7 @@
 .input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
 
 .input periodic `source_stream(periodic_source) -> map(|_| ())`
-.output throughputOut `for_each(|(num,):(u32,)| println!("committed {:?} entries", num))`
+.output throughputOut `for_each(|(num,):(u32,)| println!("throughput,{:?}", num))`
 
 .async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
 .async voteFromReplica `null::<(u32,u32,)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`

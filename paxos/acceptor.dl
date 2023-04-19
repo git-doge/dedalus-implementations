@@ -8,6 +8,8 @@
 .output p1bLogOut `for_each(|(pid,a,payload,slot,payload_id,payload_num,id,num):(u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p1bLog to {:?}: [{:?},{:?},{:?},{:?},{:?},{:?},{:?}]", a, pid, a, payload, slot, payload_id, payload_num, id, num))`
 .output p2aOut `for_each(|(a,pid,payload,slot,id,num):(u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} received p2a: [{:?},{:?},{:?},{:?},{:?}]", a, pid, payload, slot, id, num))`
 .output p2bOut `for_each(|(pid,a,payload,slot,id,num,max_id,max_num):(u32,u32,u32,u32,u32,u32,u32,u32,)| println!("acceptor {:?} sent p2b to {:?}: [{:?},{:?},{:?},{:?},{:?},{:?},{:?}]]", a, pid, a, payload, slot, id, num, max_id, max_num))`
+// .output MaxBallot `for_each(|(id,num):(u32,u32)| println!("ballot: [{:?},{:?}]", id, num))`
+// .output id `for_each(|(id):(u32,)| println!("id: [{:?}]", id))`
 
 # p1a: proposerID, ballotID, ballotNum
 .async p1a `null::<(u32,u32,u32,)>()` `source_stream(p1a_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,)>(v.unwrap()).unwrap())`
@@ -22,8 +24,10 @@
 ######################## end relation definitions
 
 
-.persist ballots
+ballots(id, num) :+ ballots(id, num)
 .persist log
+// .persist ballots
+// log(payload, slot, payloadBallotID, payloadBallotNum) :+ log(payload, slot, payloadBallotID, payloadBallotNum)
 
 
 # Debug
@@ -39,15 +43,15 @@
 ballots(id, num) :- p1a(pid, id, num)
 MaxBallotNum(max(num)) :- ballots(id, num) 
 MaxBallot(max(id), num) :- MaxBallotNum(num), ballots(id, num)
-LogSize(count(slot)) :- log(p, slot, ballotID, ballotNum), p1a(_, _, _)
-p1b@pid(i, size, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), id(i), LogSize(size), MaxBallot(maxBallotID, maxBallotNum)
-p1b@pid(i, 0, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), id(i), !LogSize(size), MaxBallot(maxBallotID, maxBallotNum)
+LogSize(count(slot)) :- p1a(_,_,_), log(p, slot, ballotID, ballotNum)
+p1b@pid(i, size, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), LogSize(size), MaxBallot(maxBallotID, maxBallotNum), id(i)
+p1b@pid(i, 0, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p1a(pid, ballotID, ballotNum), !LogSize(size), MaxBallot(maxBallotID, maxBallotNum), id(i)
 
-LogEntryMaxBallotNum(slot, max(ballotNum)) :- log(p, slot, ballotID, ballotNum), p1a(_, _, _)
-LogEntryMaxBallot(slot, max(ballotID), ballotNum) :- LogEntryMaxBallotNum(slot, ballotNum), log(p, slot, ballotID, ballotNum), p1a(_, _, _)
+LogEntryMaxBallotNum(slot, max(ballotNum)) :- p1a(_,_,_), log(p, slot, ballotID, ballotNum)
+LogEntryMaxBallot(slot, max(ballotID), ballotNum) :- p1a(_,_,_), LogEntryMaxBallotNum(slot, ballotNum), log(p, slot, ballotID, ballotNum)
 
 # send back entire log 
-p1bLog@pid(i, payload, slot, payloadBallotID, payloadBallotNum, ballotID, ballotNum) :~ p1a(pid, ballotID, ballotNum), id(i), log(payload, slot, payloadBallotID, payloadBallotNum), LogEntryMaxBallot(slot, payloadBallotID, payloadBallotNum)
+p1bLog@pid(i, payload, slot, payloadBallotID, payloadBallotNum, ballotID, ballotNum) :~ p1a(pid, ballotID, ballotNum), log(payload, slot, payloadBallotID, payloadBallotNum), LogEntryMaxBallot(slot, payloadBallotID, payloadBallotNum), id(i)
 ######################## end reply to p1a 
 
 

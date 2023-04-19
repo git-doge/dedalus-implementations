@@ -35,7 +35,8 @@
 ######################## end relation definitions
 
 
-.persist ballots
+// .persist ballots
+ballots(id, num) :+ ballots(id, num)
 .persist log
 
 

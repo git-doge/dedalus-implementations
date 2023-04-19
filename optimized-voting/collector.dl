@@ -1,8 +1,9 @@
+.input id `repeat_iter([(my_id,),])`
 .output stdout `for_each(|s:(u32,)| println!("committed: {:?}", s))`
-.input numParticipants `repeat_iter(num_participants.clone()) -> map(|p| (p,))` # Assume = 0,1,2...num_participants
+.input numParticipants `repeat_iter([(num_participants,),])`
 
 .input periodic `source_stream(periodic_source) -> map(|_| ())`
-.output throughputOut `for_each(|(num,):(u32,)| println!("{:?}", num))`
+.output throughputOut `for_each(|(i,num,):(u32,u32,)| println!("throughput,{:?},{:?}", i, num))`
 
 .async voteFromParticipant `null::<(u32,u32,)>()` `source_stream(from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
         
@@ -16,4 +17,4 @@ NumCommits(count(v)) :- committed(v)
 totalCommitted(new) :+ !totalCommitted(prev), NumCommits(new)
 totalCommitted(prev) :+ totalCommitted(prev), !NumCommits(new)
 totalCommitted(prev + new) :+ totalCommitted(prev), NumCommits(new)
-throughputOut(num) :- totalCommitted(num), periodic()
+throughputOut(i,num) :- totalCommitted(num), periodic(), id(i)
