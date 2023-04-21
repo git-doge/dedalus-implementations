@@ -1,4 +1,4 @@
-.input participantStartIDs `repeat_iter(participant_start_ids.clone()) -> map(|p| (p,))` # Assume = 0,n,2n,...,n*m, for n participants and m partitions
+.input participantStartIDs `repeat_iter(participant_start_ids.clone()) -> map(|p| (p,))` # Assume = 0,m,2m,...,(n-1)*m, for n participants and m partitions
 .input numParticipantPartitions `repeat_iter([(num_participant_partitions,),])`
 .async toBroadcaster `null::<(u32,)>()` `source_stream(to_broadcaster_source) -> map(|x| deserialize_from_bytes::<(u32,)>(x.unwrap()).unwrap())`
 .async voteToParticipants `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_participant_sink)` `null::<(u32,)>()`

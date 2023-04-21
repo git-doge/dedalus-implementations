@@ -1,22 +1,23 @@
-.input participants `repeat_iter(peers.clone()) -> map(|p| (p,))`
-.input success `repeat_iter([(true,),])`
-.input reject `repeat_iter([(false,),])`
-.input commitInstruct `repeat_iter([(true,),])`
-.input rollbackInstruct `repeat_iter([(false,),])`
+######################## relation definitions
+# EDB
+.input numParticipants `repeat_iter([(num_participants,),])`
+.input numParticipantACKers `repeat_iter([(num_participant_ackers,),])`
+.input participantACKerStartIDs `repeat_iter(participant_acker_start_ids.clone()) -> map(|p| (p,))` # Assume = 0,m,2m,...,n*m, for n participants and m acker partitions
 
-.async voteFromParticipant `null::<(u32,u32,bool,u32,)>()` `source_stream(vote_from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,bool,u32,)>(v.unwrap()).unwrap())`
-.async instructToParticipant `map(|(node_id, v):(u32,(u32,u32,bool))| (node_id, serialize_to_bytes(v))) -> dest_sink(instruct_to_participant_sink)` `null::<(u32,u32,bool,)>()`
+.async voteFromParticipant `null::<(u32,u32,u32,)>()` `source_stream(vote_from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,u32,)>(v.unwrap()).unwrap())`
+.async commitToParticipant `map(|(node_id, v):(u32,(u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(commit_to_participant_sink)` `null::<(u32,u32,)>()`
 
+.output logCommit `map(|(tid,p):(u32,u32)| format!("tid: {:?}, p: {:?}", tid, p)) -> dest_sink(file_sink)`
+# For some reason Hydroflow can't infer the type of logVoteComplete, so we define it manually:
+.input logVoteComplete `null::<(u32,u32)>()`
+######################## end relation definitions
 
 # Phase 1b, Phase 2a
-unanimous(count(addr)) :- participants(addr)
+AllVotes(tid, payload, src) :+ AllVotes(tid, payload, src), !committed(tid, _)
+AllVotes(tid, payload, src) :- voteFromParticipant(tid, payload, src)
 
-AllVotes(s, payload, res, src) :+ AllVotes(s, payload, res, src), !committed(s, payload), !aborted(s, payload)
-AllVotes(s, payload, res, src) :- voteFromParticipant(s, payload, res, src)
-
-NumYesVotes(s, payload, count(src)) :- AllVotes(s, payload, res, src), success(res)
-committed(s, payload) :- NumYesVotes(s, payload, num), unanimous(num)
-instructToParticipant@addr(s, payload, commit) :~ committed(s, payload), participants(addr), commitInstruct(commit)
-
-aborted(s, payload) :- AllVotes(s, payload, res, src), reject(res)
-instructToParticipant@addr(s, payload, rollback) :~ aborted(s, payload), participants(addr), rollbackInstruct(rollback)
+NumYesVotes(tid, count(src)) :- AllVotes(tid, payload, src)
+committed(tid, payload) :- NumYesVotes(tid, num), AllVotes(tid, payload, src), numParticipants(num) 
+logCommit(tid, payload) :- committed(tid, payload)
+logCommitComplete(tid, payload) :+ committed(tid, payload)
+commitToParticipant@(s+(tid%n))(tid, payload) :~ logCommitComplete(tid, payload), numParticipantACKers(n), participantACKerStartIDs(s) 

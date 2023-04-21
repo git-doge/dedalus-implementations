@@ -1,0 +1,11 @@
+######################## relation definitions
+# EDB
+.input myID `repeat_iter([(my_id,),])`
+.input numEnders `repeat_iter([(num_enders,),])`
+
+.async commitToParticipant `null::<(u32,u32,)>()` `source_stream(commit_to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,u32,)>(x.unwrap()).unwrap())`
+.async ackFromParticipant `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(ack_from_participant_sink)` `null::<(u32,u32,u32,)>()`
+
+######################## end relation definitions
+
+ackFromParticipant@(tid%n)(tid, p, i) :~ commitToParticipant(tid, p), myID(i), numEnders(n)

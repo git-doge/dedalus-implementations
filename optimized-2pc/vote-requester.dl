@@ -1,4 +1,10 @@
-.input numParticipantPartitions `repeat_iter([(num_participant_partitions,),])` # Assume id = 0,1,2...
-.async voteToVoteRequester `null::<(u32,u32,)>()` `source_stream(vote_to_vote_requester_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+######################## relation definitions
+# EDB
+.input numParticipantVoters `repeat_iter([(num_participant_voters,),])` 
+.input participantVoterStartIDs `repeat_iter(participant_voter_start_ids.clone()) -> map(|p| (p,))` # Assume = 0,m,2m,...,n*m, for n participants and m voter partitions
 
-voteToParticipant@(s % n)(s, p) :~ voteToVoteRequester(s, p), numParticipantPartitions(n)
+.async voteToVoteRequester `null::<(u32,u32,)>()` `source_stream(vote_to_vote_requester_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+.async voteToParticipant `map(|(node_id, v):(u32,(u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(vote_to_participant_sink)` `null::<(u32,u32,)>()`
+######################## end relation definitions
+
+voteToParticipant@(s+(tid%n))(tid, p) :~ voteToVoteRequester(tid, p), numParticipantVoters(n), participantVoterStartIDs(s)
