@@ -1,0 +1,9 @@
+.input leader `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.async toReplica `null::<(u32,u32,)>()` `source_stream(to_replica_source) -> map(|x| deserialize_from_bytes::<(u32,u32)>(x.unwrap()).unwrap())`
+.async fromReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(from_replica_sink)` `null::<(u32,u32,)>()`
+
+.persist storage
+storage(v, hashed) :- toReplica(v, hashed) # Hashing is already done in rust
+collisions(v2, hashed) :- toReplica(v1, hashed), storage(v2, hashed)
+numCollisions(count(v2), hashed) :- collisions(v2, hashed)
+fromReplica@addr(i, v, n) :~ toReplica(v, hashed), numCollisions(n, hashed), leader(addr), myID(i)

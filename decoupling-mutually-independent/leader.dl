@@ -1,0 +1,16 @@
+.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input numParticipants `repeat_iter([(num_participants,),])`
+
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
+.async voteFromParticipant `null::<(u32,u32,)>()` `source_stream(from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+
+.async clientIn `null::<(i64,)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+.async clientOut `map(|(node_id, (payload, slot,))| (node_id, serialize(payload, slot))) -> dest_sink(replica_send)` `null::<(Rc<Vec<u8>>, u32,)>()`
+
+
+voteToReplica@addr(v) :~ clientIn(v), replicas(addr)
+        
+allVotes(l, v) :- voteFromParticipant(l, v)
+allVotes(l, v) :+ allVotes(l, v), !committed(v)
+voteCounts(count(l), v) :- allVotes(l, v)
+committed(v) :- voteCounts(n, v), numParticipants(n)

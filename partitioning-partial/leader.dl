@@ -1,0 +1,19 @@
+.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input numReplicas `repeat_iter([(num_replicas,),])`
+
+.input periodic `source_stream(periodic_source) -> map(|_| ())`
+
+.async toReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
+.async fromReplica `null::<(u32,u32,)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+
+# Automatically updating epoch.
+ballots(b) :- startBallot(b)
+maxBallot(max(b)) :- ballots(b)
+ballots(b) :+ maxBallot(b)
+ballots(b+1) :+ maxBallot(b), periodic()
+
+toReplica@addr(v) :~ clientIn(v), replicas(addr)
+acks(i, v) :- fromReplica(i, v)
+acks(i, v) :+ acks(i, v), !committed(v)
+numAcks(count(i), v) :- acks(i, v)
+committed(v) :- numAcks(num, v), numReplicas(n)

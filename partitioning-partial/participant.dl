@@ -1,0 +1,12 @@
+.input leader `repeat_iter(peers.clone()) -> map(|p| (p,))`
+
+.async toReplica `null::<(u32,u32,)>()` `source_stream(to_replica_source) -> map(|x| deserialize_from_bytes::<(u32,u32)>(x.unwrap()).unwrap())`
+.async fromReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(from_replica_sink)` `null::<(u32,u32,)>()`
+
+ballots(b) :+ ballots(b)
+ballots(b) :- ballotUpdateToReplica(b, v)
+MaxBallot(max(b)) :- ballots(b)
+
+.persist storage
+storage(v, b) :- toReplica(v), MaxBallot(b)
+fromReplica@addr(i, v, b) :~ toReplica(v), MaxBallot(b), leader(addr), myID(i)

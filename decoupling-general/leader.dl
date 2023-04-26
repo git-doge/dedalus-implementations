@@ -1,0 +1,18 @@
+.input startBallot `repeat_iter([(0 as u32,),])`
+
+# Buffer inputs, choose 1 at a time.
+clientBuffer(v) :- clientIn(v)
+clientBuffer(v) :+ clientBuffer(v), !nextIn(v)
+nextIn(choose(v)) :- clientBuffer(v)
+
+# Automatically updating epoch.
+ballots(b) :- startBallot(b)
+maxBallot(max(b)) :- ballots(b)
+ballots(b+1) :+ maxBallot(b)
+
+# Store 1 input and track previous input.
+.persist storage
+storage(b, v) :- nextIn(v), maxBallot(b)
+
+# Output current input plus hash of previous (computed in rust).
+outHashed(v) :- nextIn(v), maxBallot(b)

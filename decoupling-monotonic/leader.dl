@@ -1,0 +1,23 @@
+.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input numParticipants `repeat_iter([(num_participants,),])`
+
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
+.async voteFromParticipant `null::<(u32,u32,)>()` `source_stream(from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+
+# ballot is guaranteed to either be empty or contain the 1 current ballot
+newBallots(b) :- clientIn(b, v)
+newBallots(b) :- ballot(b)
+MaxNewBallot(max(b)) :- newBallots(b)
+ballot(b) :+ MaxNewBallot(b)
+
+voteToReplica@addr(v) :~ clientIn(b, v), replicas(addr)
+# Record ballot at the time clientIn arrived
+writeTimeBallot(b, v) :- clientIn(_, v), ballot(b)
+writeTimeBallot(0, v) :- clientIn(_, v), !ballot(b)
+writeTimeBallot(b, v) :+ writeTimeBallot(b, v), !committed(b, v)
+        
+allVotes(l, v) :- voteFromParticipant(l, v)
+allVotes(l, v) :+ allVotes(l, v), !committed(b, v)
+voteCounts(count(l), v) :- allVotes(l, v)
+# Attach ballot at the time clientIn arrived to the output
+committed(b, v) :- voteCounts(n, v), numParticipants(n), writeTimeBallot(b, v)

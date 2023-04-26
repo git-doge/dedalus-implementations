@@ -1,0 +1,13 @@
+
+# ballot is guaranteed to either be empty or contain the 1 current ballot
+newBallots(b) :- clientIn(b, v)
+newBallots(b) :- ballot(b)
+MaxNewBallot(max(b)) :- newBallots(b)
+ballot(b) :+ MaxNewBallot(b)
+
+.persist storage
+storage(v) :- clientIn(b, v)
+        
+# Attach ballot at the time clientIn arrived to the output
+committed(b, v) :- clientIn(_, v), ballot(b)
+committed(0, v) :- clientIn(_, v), !ballot(b)

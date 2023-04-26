@@ -1,0 +1,8 @@
+.input myID `repeat_iter(my_id.clone()) -> map(|p| (p,))`
+.input collector `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.async voteToParticipant `null::<(u32,)>()` `source_stream(to_participant_source) -> map(|x| deserialize_from_bytes::<(u32,)>(x.unwrap()).unwrap())`
+.async voteFromParticipant `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(from_participant_sink)` `null::<(u32,u32,)>()`
+            
+.persist storage
+storage(v) :- voteToParticipant(v)
+voteFromParticipant@addr(i, v) :~ voteToParticipant(v), collector(addr), myID(i)

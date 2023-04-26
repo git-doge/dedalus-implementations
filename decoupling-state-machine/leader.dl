@@ -1,0 +1,12 @@
+
+# Buffer inputs, choose 1 at a time.
+clientBuffer(v) :- clientIn(v)
+clientBuffer(v) :+ clientBuffer(v), !nextIn(v)
+nextIn(choose(v)) :- clientBuffer(v)
+
+# Store 1 input and track previous input.
+.persist storage
+storage(v) :- nextIn(v)
+
+# Output current input plus hash of previous (computed in rust).
+outHashed(v) :- nextIn(v)

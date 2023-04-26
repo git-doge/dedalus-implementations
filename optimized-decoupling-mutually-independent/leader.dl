@@ -1,0 +1,4 @@
+.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
+        
+voteToReplica@addr(v) :~ clientIn(v), replicas(addr)
