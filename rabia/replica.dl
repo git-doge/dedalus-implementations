@@ -13,13 +13,13 @@
 .async clientOut `map(|(node_id, (payload, seq,))| (node_id, serialize(payload, seq))) -> dest_sink(replica_send)` `null::<(Rc<Vec<u8>>, u32,)>()`
 
 # replicaForward: payloadId, payload, time.
-.async replicaForward `map(|(node_id, v):(u32,(u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(replica_forward_sink)` `source_stream(replica_forward_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32)>(v.unwrap()).unwrap())`
+.async replicaForward `map(|(node_id, v):(u32,(u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(replica_forward_sink)` `source_stream(replica_forward_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32)>(v.unwrap().1).unwrap())`
 # sendProposalU: id, payloadId, payload, seq.
-.async sendProposalU `map(|(node_id, v):(u32,(u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_proposal_sink)` `source_stream(send_proposal_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,u32,u32)>(v.unwrap()).unwrap())`
+.async sendProposalU `map(|(node_id, v):(u32,(u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_proposal_sink)` `source_stream(send_proposal_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,u32,u32)>(v.unwrap().1).unwrap())`
 # sendStateU: id, phase, seq, state.
-.async sendStateU `map(|(node_id, v):(u32,(u32,u32,u32,u32,i32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_state_sink)` `source_stream(send_state_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,i32)>(v.unwrap()).unwrap())`
+.async sendStateU `map(|(node_id, v):(u32,(u32,u32,u32,u32,i32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_state_sink)` `source_stream(send_state_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,i32)>(v.unwrap().1).unwrap())`
 # sendVoteU: id, phase, seq, state.
-.async sendVoteU `map(|(node_id, v):(u32,(u32,u32,u32,u32,i32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_vote_sink)` `source_stream(send_vote_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,i32)>(v.unwrap()).unwrap())`
+.async sendVoteU `map(|(node_id, v):(u32,(u32,u32,u32,u32,i32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_vote_sink)` `source_stream(send_vote_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,i32)>(v.unwrap().1).unwrap())`
 ######################## end relation definitions
 
 # Persistence rules
@@ -52,7 +52,6 @@ minPQ(payloadId, payload, time) :- replicaForward(payloadId, payload, time)
 
 ######################## Begin WeakMVC
 # Persistence rules
-# TODO: Fix persistence rules so after a quorum, new received messages are discarded. Make sure that message sends are triggered only-once.
 # Don't persist any data for a sequence after that sequence has been committed (hence the !seqCommitted(seq))
 sendProposal(id, payloadId, seq) :- sendProposalU(id, payloadId, seq)
 sendProposal(id, payloadId, seq) :+ sendProposal(id, payloadId, seq), !seqCommitted(seq)
@@ -105,7 +104,6 @@ nonQValueVote(ph, seq, vo) :- sendVote(_, ph, seq, vo), (vo != -1)
 NewState(vo, seq) :- voteQuorum(seq), !nonQValueVoteQuorum(ph, seq, _), nonQValueVote(ph, seq, vo)
 # Else
 NewState(flip, seq) :- voteQuorum(ph, seq), !nonQValueVote(ph, seq), random(ph, flip) # Assumes the random relation accepts a seed as an argument and outputs 0 or 1
-# TODO: Phase increment.
 NewPhase(ph+1, seq) :- voteQuorum(ph, seq), !nonQValueVoteQuorum(ph, seq, _)
 
 ######################## End WeakMVC

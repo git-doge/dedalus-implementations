@@ -1,0 +1,64 @@
+# Note: We'll use -1 instead of ? or "bottom" in the paper
+######################## relation definitions
+# EDB
+.input id `repeat_iter([(my_id,),])` # Assume is 0,1,2,...
+.input numWeakMVCs `repeat_iter([(num_weak_mvcs,),])` # Assume WeakMVC 0 handles all sequences 0%n, etc.
+.input replicas `repeat_iter(replicas.clone()) -> map(|r| (r,))`
+.input numReplicas `repeat_iter([(replicas.len(),),])`
+.input clients `repeat_iter(clients.clone()) -> map(|c| (c,))`
+
+# IDB. Note: Most channels are both source and sink
+.async clientIn `null::<(Rc<Vec<u8>>,)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+.async clientOut `map(|(node_id, (payload, seq,))| (node_id, serialize(payload, seq))) -> dest_sink(replica_send)` `null::<(Rc<Vec<u8>>, u32,)>()`
+
+# replicaForward: id, payloadId, payload, time.
+.async replicaForward `map(|(node_id, v):(u32,(u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(replica_forward_sink)` `source_stream(replica_forward_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32)>(v.unwrap().1).unwrap())`
+# weakMVCIn: payloadId, seq.
+.async weakMVCIn `map(|(node_id, v):(u32,(u32,u32,))| (node_id, serialize_to_bytes(v))) -> dest_sink(weak_mvc_in_sink)` `null::<(u32,u32,u32,)>()`
+# weakMVCOut: payloadId, seq, t.
+.async weakMVCOutToReplica `null::<(u32,u32,u32,u32,)>()` `source_stream(weak_mvc_out_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,)>(v.unwrap().1).unwrap())`
+# inputs: n, t1, prevT
+.async inputsU `null::<(u32,u32,u32)>()` `source_stream(inputs_source) -> map(|v| deserialize_from_bytes::<(u32,u32,u32)>(v.unwrap().1).unwrap())`
+######################## end relation definitions
+
+# Persistence rules
+minPQ(i, payloadId, payload, time) :+ minPQ(i, payloadId, payload, time), !MinProposal(i, payloadId, _, _)
+nextSlot(i, seq) :+ nextSlot(i, seq), !weakMVCOut(_, seq)
+nextSlot(i, seq+n) :+ nextSlot(i, seq), weakMVCOut(_, seq), numReplicas(n)
+proposal(i, payloadId, payload, time, seq) :+ proposal(i, payloadId, payload, time, seq), !weakMVCOut(_, seq)
+log(payloadId) :+ log(payloadId), !MinProposal(_, payloadId, _, _, _)
+
+# Start slot for each PQ = the corresponding replica ID (0 for replica 0, 1 for replica 1, etc)
+nextSlot(r, r) :+ replicas(r), !nextSlot(r, _)
+
+# While true do
+MinProposalTime(i, min(time)) :- minPQ(i, payloadId, payload, time), !proposal(i, _, _, _, _)
+MinProposal(i, payloadId, payload, time, seq) :- minPQ(i, payloadId, payload, time), MinProposalTime(i, time), nextSlot(i, seq)
+# If this payload was decided in an earlier round, discard it (by not allowing it to be proposed)
+NextProposal(i, payloadId, payload, time, seq) :- MinProposal(i, payloadId, payload, time, seq), !log(payloadId)
+proposal(i, payloadId, payload, time, seq) :+ NextProposal(i, payloadId, payload, time, seq)
+weakMVCIn@(seq%n)(payloadId, time, seq) :- NextProposal(_, payloadId, payload, time, seq), numWeakMVCs(n)
+# Store output in dictionary if it doesn't match the proposal
+log(payloadId) :- weakMVCOut(payloadId, seq), !proposal(_, payloadId, _, _, seq), (payloadId != -1)
+minPQ(i, payloadId, payload, time) :- proposal(i, payloadId, payload, time, seq), weakMVCOut(payloadId2, seq), (payloadId != payloadId2)
+clientOut@c(payload, seq) :~ weakMVCOut(payloadId, seq), proposal(_, payloadId, payload, _, seq), clients(c)
+clientOut@c("", seq) :~ weakMVCOut(payloadId, seq), (payloadId == -1), clients(c)
+
+# Upon receiving request from client
+replicaForward@r(i, payloadId, payload, time) :~ clientIn(payloadId, payload, time), id(i), replicas(r)
+minPQ(i, payloadId, payload, time) :- clientIn(payloadId, payload, time), id(i)
+minPQ(i, payloadId, payload, time) :- replicaForward(i, payloadId, payload, time)
+
+
+######################## state machine decoupling
+weakMVCOutUP(payloadId, seq, t1) :- weakMVCOutU(payloadId, seq, t1) # Accept the original input
+weakMVCOutUP(payloadId, seq, t1) :+ weakMVCOutUP(payloadId, seq, t1) # Persist
+recvSize(count(*), t1) :- weakMVCOutUP(payloadId, seq, t1) # Count. Since there's only 1 r, recvSize = rCount.
+inputs(n, t1, prevT) :+ inputsU(n, t1, prevT)
+inputs(n, t1, prevT) :+ inputs(n, t1, prevT)
+canSeal(t1) :- recvSize(n, t1), !sealed(t1), inputs(n, t1, prevT), sealed(prevT) # Check if all inputs of this batch have been received
+canSeal(t1) :- recvSize(n, t1), !sealed(t2), inputs(n, t1, prevT), (prevT == 0)
+sealed(t1) :+ canSeal(t1)
+sealed(t1) :+ sealed(t1)
+weakMVCOut(payloadId, seq) :- weakMVCOutUP(payloadId, seq, t1), canSeal(t1)
+######################## end state machine decoupling
