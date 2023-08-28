@@ -1,0 +1,98 @@
+# Note: We'll use -1 instead of ? or "bottom" in the paper
+######################## relation definitions
+# EDB
+.input id `repeat_iter([(my_id,),])`
+.input quorum `repeat_iter([(f+1,),])` 
+.input replicas `repeat_iter(replicas.clone()) -> map(|r| (r,))`
+.input clients `repeat_iter(clients.clone()) -> map(|c| (c,))`
+
+# IDB. Note: Most channels are both source and sink
+# replicaForward: payloadId, payload, time.
+.async replicaForward `map(|(node_id, v):(u32,(u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(replica_forward_sink)` `source_stream(replica_forward_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32)>(v.unwrap()).unwrap())`
+# sendProposalU: id, payloadId, payload, seq.
+.async sendProposalU `map(|(node_id, v):(u32,(u32,u32,u32,u32,u32))| (node_id, serialize_to_bytes(v))) -> dest_sink(send_proposal_sink)` `source_stream(send_proposal_source) -> map(|v: Result<BytesMut, _>| deserialize_from_bytes::<(u32,u32,u32,u32,u32,u32)>(v.unwrap()).unwrap())`
+
+######################## end relation definitions
+# Persistence rules
+minPQ(payloadId, payload, time) :+ minPQ(payloadId, payload, time), !NextProposal(payloadId, _, _)
+nextSlot(seq) :+ nextSlot(seq), !weakMVCOut(_, seq)
+nextSlot(seq+1) :+ nextSlot(seq), weakMVCOut(_, seq)
+proposal(payloadId, payload, time, seq) :+ proposal(payloadId, payload, time, seq), !weakMVCOut(_, seq)
+log(payloadId) :+ log(payloadId), !AlreadyDecided(payloadId)
+
+# While true do
+# TODO: Pipeline
+NextProposal(payloadId, payload, min(time)) :- minPQ(payloadId, payload, time), !proposal(payloadId, payload, time)
+# If this payload was decided in an earlier round, discard it (by not allowing it to be proposed)
+AlreadyDecided(payloadId) :- NextProposal(payloadId, _, _), log(payloadId)
+proposal(payloadId, payload, time, seq) :+ NextProposal(payloadId, payload, time), nextSlot(seq), !AlreadyDecided(payloadId)
+weakMVCIn(payloadId, time, seq) :- proposal(payloadId, payload, time, seq)
+# Store output in dictionary if it doesn't match the proposal
+log(payloadId) :- weakMVCOut(payloadId, _), !proposal(payloadId, _, _, _), (payloadId != -1)
+minPQ(payloadId, payload, time) :- proposal(payloadId, payload, time, seq), weakMVCOut(payloadId2, seq), (payloadId != payloadId2)
+clientOut@c(payload) :~ weakMVCOut(payloadId, _), proposal(payloadId, payload, _, _), clients(c)
+
+# Upon receiving request from client
+replicaForward@r(payloadId, payload, time) :~ clientIn(payloadId, payload, time), replicas(r)
+minPQ(payloadId, payload, time) :- clientIn(payloadId, payload, time)
+
+
+######################## Begin WeakMVC
+# Persistence rules
+# TODO: Fix persistence rules so after a quorum, new received messages are discarded. Make sure that message sends are triggered only-once.
+# TODO: Garbage collect by storing max sequence number? But have to make that partitionable somehow...
+sendProposal(id, payloadId, seq) :- sendProposalU(id, payloadId, seq)
+sendProposal(id, payloadId, seq) :+ sendProposal(id, payloadId, seq), !proposalQuorum(seq)
+sendState(id, ph, seq, st) :- sendStateU(id, ph, seq, st)
+sendState(id, ph, seq, st) :+ sendState(id, ph, seq, st), !stateQuorum(seq)
+sendVote(id, ph, seq, vo) :- sendVoteU(id, ph, seq, vo)
+sendVote(id, ph, seq, vo) :+ sendVote(id, ph, seq, vo), !voteQuorum(seq)
+majorityProposal(payloadId, seq) :- NewMajorityProposal(payloadId, seq)
+majorityProposal(payloadId, seq) :+ majorityProposal(payloadId, seq)
+phase(ph, seq) :+ NewPhase(ph, seq)
+phase(ph, seq) :+ phase(ph, seq), !NewPhase(_, seq)
+
+# Exchange stage
+# TODO: These broadcasts include send-to-self. Make sure it's ok.
+sendProposalU@r(i, payloadId, seq) :~ weakMVCIn(payloadId, seq), id(i), replicas(r)
+recvProposalCount(count(id), seq) :- sendProposal(id, _, seq)
+proposalQuorum(seq) :- recvProposalCount(c, seq), quorum(q), (c >= q)
+sameProposalCount(count(id), payloadId, seq) :- proposalQuorum(seq), sendProposal(id, payloadId, seq)
+NewMajorityProposal(payloadId, seq) :- sameProposalCount(c, payloadId, seq), quorum(q), (c >= q)
+NewState(1, seq) :- NewMajorityProposal(_, seq)
+NewState(0, seq) :- proposalQuorum(seq), !NewMajorityProposal(_, seq)
+
+# Randomized binary consensus stage
+# Round 1
+NewPhase(1, seq) :- proposalQuorum(seq), !phase(_, seq)
+sendStateU@r(i, ph, seq, st) :~ NewPhase(ph, seq), NewState(st, seq), id(i), replicas(r)
+recvStateCount(count(id), ph, seq) :- sendState(id, ph, seq, _)
+stateQuorum(ph, seq) :- recvStateCount(c, ph, seq), quorum(q), (c >= q)
+sameStateCount(count(id), ph, seq, st) :- stateQuorum(ph, seq), sendState(id, ph, seq, st)
+sameStateQuorum(ph, seq, st) :- sameStateCount(c, ph, seq, st), quorum(q), (c >= q)
+NewVote(st, ph, seq) :- sameStateQuorum(ph, seq, st)
+NewVote(-1, ph, seq) :- stateQuorum(ph, seq), !sameStateQuorum(_, seq, _)
+
+# Round 2
+sendVoteU@r(i, ph, seq, vo) :~ NewVote(vo, ph, seq), id(i), replicas(r)
+recvVoteCount(count(id), ph, seq) :- sendVote(id, ph, seq, _)
+voteQuorum(ph, seq) :- recvVoteCount(c, ph, seq), quorum(q), (c >= q)
+sameVoteCount(count(id), ph, seq, vo) :- voteQuorum(ph, seq), sendVote(id, ph, seq, vo)
+sameVoteQuorum(ph, seq, vo) :- sameVoteCount(c, ph, seq, vo), quorum(q), (c >= q)
+# If a non-? value appears >= f+1 times
+nonQValueVoteQuorum(ph, seq, vo) :- sameVoteQuorum(ph, seq, vo), (vo == 1)
+nonQValueVoteQuorum(ph, seq, vo) :- sameVoteQuorum(ph, seq, vo), (vo == 0)
+weakMVCOut(payloadId, seq) :- majorityProposal(payloadId, seq), nonQValueVoteQuorum(_, seq, vo), (vo == 1)
+weakMVCOut(-1, seq) :- nonQValueVoteQuorum(_, seq, vo), (vo == 0)
+# If a non-? value appears at least once
+nonQValueVote(ph, seq, vo) :- sendVote(_, ph, seq, vo), (vo == 1)
+nonQValueVote(ph, seq, vo) :- sendVote(_, ph, seq, vo), (vo == 0)
+NewState(vo, seq) :- voteQuorum(seq), !nonQValueVoteQuorum(ph, seq, _), nonQValueVote(ph, seq, vo)
+# Else
+NewState(flip, seq) :- voteQuorum(ph, seq), !nonQValueVote(ph, seq), random(ph, flip) # Assumes the random relation accepts a seed as an argument and outputs 0 or 1
+# TODO: Phase increment.
+NewPhase(ph+1, seq) :- voteQuorum(ph, seq), !nonQValueVoteQuorum(ph, seq, _), phase(ph, seq)
+
+######################## End WeakMVC
+
+
