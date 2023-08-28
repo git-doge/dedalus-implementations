@@ -1,4 +1,6 @@
 .input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
-.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
-        
-voteToReplica@addr(v) :~ clientIn(v), replicas(addr)
+
+.async clientIn `null::<(u32,i64,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.2,)})`
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,i64,Rc<Vec<u8>>)>()`
+
+voteToReplica@addr(client, id, v) :~ clientIn(client, id, v), replicas(addr)

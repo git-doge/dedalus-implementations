@@ -1,0 +1,18 @@
+.input responders `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input tick `repeat_iter_external(vec![()]) -> map(|_| (context.current_tick() as u32,))`
+
+.async clientIn `null::<(u32,i64,u32,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+.async toResponder `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_responder_send)` `null::<(u32,i64,u32,u32,Rc<Vec<u8>>,u32)>()`
+.async orderMetadata `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(order_metadata_send)` `null::<(u32,u32)>()`
+
+# Buffer inputs, choose 1 at a time.
+clientBuffer(client, id, b, vid, v) :- clientIn(client, id, b, vid, v)
+clientBuffer(client, id, b, vid, v) :+ clientBuffer(client, id, b, vid, v), !nextIn(client, id)
+nextIn(choose(client), choose(id)) :- clientBuffer(client, id, b, vid, v)
+nextPayload(client, id, b, vid, v) :- nextIn(client, id), clientBuffer(client, id, b, vid, v)
+
+
+batchSize(count(*)) :- nextPayload(client, id, b, vid, v)
+toResponder@addr(client, id, b, vid, v, t) :~ nextPayload(client, id, b, vid, v), responders(addr), tick(t)
+orderMetadata@addr(t, num) :~ batchSize(num), responders(addr), tick(t)
+orderMetadata@addr(t, 0) :~ !batchSize(num), responders(addr), tick(t)

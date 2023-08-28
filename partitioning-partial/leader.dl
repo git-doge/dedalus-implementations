@@ -1,19 +1,27 @@
 .input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
 .input numReplicas `repeat_iter([(num_replicas,),])`
-
 .input periodic `source_stream(periodic_source) -> map(|_| ())`
+.input startBallot `repeat_iter([(0 as u32,),])`
 
-.async toReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,)>()`
-.async fromReplica `null::<(u32,u32,)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
+.async ballotToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(ballot_to_replica_sink)` `null::<(u32,)>()`
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,i64,u32,Rc<Vec<u8>>)>()`
+.async voteFromReplica `null::<(u32,u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,i64,u32,Rc<Vec<u8>>)>(v.unwrap().1).unwrap())`
 
-# Automatically updating epoch.
+.async clientIn `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.1, v.2,)})`
+.async clientOut `map(|(node_id, (id, ballot, payload,))| (node_id, encrypt_and_serialize(id, ballot, payload, &mut rng, &public_key))) -> dest_sink(client_send)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+
+# Automatically update epoch.
 ballots(b) :- startBallot(b)
 maxBallot(max(b)) :- ballots(b)
-ballots(b) :+ maxBallot(b)
-ballots(b+1) :+ maxBallot(b), periodic()
+newBallot(b+1) :- maxBallot(b), periodic()
+ballots(b) :+ maxBallot(b), !newBallot(_)
+ballots(b) :+ !maxBallot(_), newBallot(b)
+ballotToReplica@addr(b) :~ newBallot(b), replicas(addr)
 
-toReplica@addr(v) :~ clientIn(v), replicas(addr)
-acks(i, v) :- fromReplica(i, v)
-acks(i, v) :+ acks(i, v), !committed(v)
-numAcks(count(i), v) :- acks(i, v)
-committed(v) :- numAcks(num, v), numReplicas(n)
+voteToReplica@addr(client, id, b, v) :~ clientIn(client, id, b, v), replicas(addr)
+        
+allVotes(l, client, id, b, v) :- voteFromReplica(l, client, id, b, v)
+allVotes(l, client, id, b, v) :+ allVotes(l, client, id, b, v), !committed(client, id, _, _)
+voteCounts(count(l), client, id) :- allVotes(l, client, id, b, v)
+committed(client, id, b, v) :- voteCounts(n, client, id), numReplicas(n), allVotes(l, client, id, b, v)
+clientOut@client(id, b, v) :~ committed(client, id, b, v)

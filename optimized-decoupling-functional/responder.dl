@@ -1,0 +1,4 @@
+.async toResponder `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(to_responder_source) -> map(|x: Result<(u32, BytesMut,), _>| deserialize_from_bytes::<(u32,i64,u32,Rc<Vec<u8>>)>(x.unwrap().1).unwrap())`
+.async clientOut `map(|(node_id, (id, ballot, payload,))| (node_id, encrypt_and_serialize(id, ballot, payload, &mut rng, &public_key))) -> dest_sink(client_send)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+
+clientOut@client(id, b, v) :~ toResponder(client, id, b, v)

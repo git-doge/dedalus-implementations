@@ -1,0 +1,34 @@
+.async toResponder `null::<(u32,i64,u32,Rc<Vec<u8>>,u32)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+.async clientOut `map(|(node_id, (id, ballot, payload,))| (node_id, hash_and_serialize(id, ballot, payload))) -> dest_sink(client_send)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+.async orderMetadata `null::<(u32,u32)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+
+outputBuffer(client, id, b, vid, v, t) :- toResponder(client, id, b, vid, v, t)
+outputBuffer(client, id, b, vid, v, t) :+ outputBuffer(client, id, b, vid, v, t), !canSeal(t)
+outputBufferCount(count(client), count(id), t) :- outputBuffer(client, id, b, vid, v, t)
+orderMetadataBuffer(t, num) :- orderMetadata(t, num)
+orderMetadataBuffer(t, num) :+ orderMetadataBuffer(t, num), !canSeal(t)
+orderMetadataPrev(t, t-1) :- orderMetadataBuffer(t, num)
+canSeal(t1) :- outputBuffer(client, id, b, vid, v, t), orderMetadataBuffer(t, num), orderMetadataPrev(t, prevT), sealed(prevT)
+canSeal(t1) :- outputBuffer(client, id, b, vid, v, t), orderMetadataBuffer(t, num), orderMetadataPrev(t, prevT), (prevT == 0)
+sealed(t1) :+ sealed(t1), !canSeal(_)
+sealed(t1) :+ canSeal(t1)
+
+
+# Automatically send client alerts.
+clientFreqStorage(client, count(vid)) :- storage(client, vid, v)
+# Start tracking when we last sent a message to each client when it appears in storage.
+lastClientSend(client, t) :+ clientFreqStorage(client, n), !lastClientSend(client, _), canSeal(t)
+lastClientSend(client, t) :+ lastClientSend(client, t), !clientAlert(client, num)
+lastClientSend(client, t) :+ clientAlert(client, num), canSeal(t)
+storageSize(count(vid)) :- storage(client, vid, v)
+clientAlertInterval(client, (n-c+1)*100000) :- storageSize(n), clientFreqStorage(client, c) # Alert roughly based on % of storage used. Can't actually do percentage bc division is not supported...
+timeSinceAlert(client, t-prevT) :- lastClientSend(client, prevT), canSeal(t)
+clientAlert(client, num) :- timeSinceAlert(client, t), clientAlertInterval(client, i), (t > i), clientFreqStorage(client, num)
+clientAlertOut@client(num) :~ clientAlert(client, num)
+
+# Store 1 input and track previous input.
+.persist storage
+storage(client, vid, v) :- outputBuffer(client, id, b, vid, v, t), canSeal(t)
+
+# Output current input plus hash of previous (computed in rust).
+clientOut@client(id, b, v) :~ outputBuffer(client, id, b, vid, v, t), canSeal(t)

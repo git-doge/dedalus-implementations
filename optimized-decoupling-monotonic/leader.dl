@@ -1,0 +1,18 @@
+.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input collector `repeat_iter(collectors.clone()) -> map(|p| (p,))`
+
+.async clientIn `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.1, v.2,)})`
+.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,i64,u32,Rc<Vec<u8>>)>()`
+.async ballotToCollector `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(ballot_to_collector_sink)` `null::<(u32,i64,u32)>()`
+
+# ballot is guaranteed to either be empty or contain the 1 current ballot
+newBallots(b) :- clientIn(client, id, b, v)
+newBallots(b) :- ballot(b)
+MaxNewBallot(max(b)) :- newBallots(b)
+ballot(b) :+ MaxNewBallot(b)
+
+voteToReplica@addr(client, id, b, v) :~ clientIn(client, id, b, v), replicas(addr)
+# Record ballot at the time clientIn arrived
+writeTimeBallot(client, id, b) :- clientIn(client, id, _, _), ballot(b)
+writeTimeBallot(client, id, 0) :- clientIn(client, id, _, _), !ballot(b)
+ballotToCollector@addr(client, id, b) :~ writeTimeBallot(client, id, b), collector(addr)

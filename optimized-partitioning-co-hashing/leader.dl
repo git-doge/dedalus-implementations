@@ -1,13 +1,15 @@
-.input replicas `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input numReplicaPartitions `repeat_iter([(num_replica_partitions,),])`
+.input replicaStartIDs `repeat_iter(replica_start_ids.clone()) -> map(|p| (p,))`
 .input numReplicas `repeat_iter([(num_replicas,),])`
 
-.async voteToReplica `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,i64,u32,Rc<Vec<u8>>)>()`
+.async voteToReplica `map(|(node_id, v)| (u32::try_from(node_id).unwrap(), serialize_to_bytes(v))) -> dest_sink(to_replica_sink)` `null::<(u32,i64,u32,Rc<Vec<u8>>)>()`
 .async voteFromReplica `null::<(u32,u32,i64,Rc<Vec<u8>>)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,i64,Rc<Vec<u8>>)>(v.unwrap().1).unwrap())`
 
-.async clientIn `null::<(u32,i64,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.2,)})`
+.async clientIn `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.2,)})`
 .async clientOut `map(|(node_id, (id, payload,))| (node_id, encrypt_and_serialize(id, payload, &mut rng, &public_key))) -> dest_sink(client_send)` `null::<(i64,Rc<Vec<u8>>)>()`
 
-voteToReplica@addr(client, id, v) :~ clientIn(client, id, v), replicas(addr)
+
+voteToReplica@(start+(id%n))(client, id, v) :~ clientIn(client, id, v), replicaStartIDs(start), numReplicaPartitions(n)
         
 allVotes(l, client, id, v) :- voteFromReplica(l, client, id, v)
 allVotes(l, client, id, v) :+ allVotes(l, client, id, v), !committed(client, id, _)

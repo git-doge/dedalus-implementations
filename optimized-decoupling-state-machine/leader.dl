@@ -1,0 +1,22 @@
+.input responders `repeat_iter(peers.clone()) -> map(|p| (p,))`
+.input tick `repeat_iter(vec![()]) -> map(|_| (context.current_tick() as u32,))`
+
+.async clientIn `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.1, v.2,)})`
+.async toResponder `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_responder_sink)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+.async orderMetadata `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(order_metadata_sink)` `null::<(u32,u32)>()`
+
+# Buffer inputs, choose 1 at a time.
+clientBuffer(client, id, b, v) :- clientIn(client, id, b, v)
+clientBuffer(client, id, b, v) :+ clientBuffer(client, id, b, v), !nextIn(client, id)
+nextIn(choose(client), choose(id)) :- clientBuffer(client, id, b, v)
+nextPayload(client, id, b, v) :- nextIn(client, id), clientBuffer(client, id, b, v)
+
+# Store 1 input and track previous input.
+.persist storage
+storage(v) :- nextPayload(client, id, b, v)
+
+toResponder@addr(client, id, b, v, t1) :~ nextPayload(client, id, b, v), responders(addr), tick(t1)
+batchTimes(t1) :+ nextPayload(_, _, _, _), tick(t1) # Since there's only 1 r to be batched, (n != 0) is implied
+batchTimes(t1) :+ !nextPayload(_, _, _, _), batchTimes(t1) # Persist if no batch
+orderMetadata@addr(t1, prevT) :~ tick(t1), batchTimes(prevT), responders(addr)
+orderMetadata@addr(t1, 0) :~ tick(t1), !batchTimes(prevT), responders(addr)

@@ -1,18 +1,30 @@
-.input startBallot `repeat_iter([(0 as u32,),])`
+.input tick `repeat_iter_external(vec![()]) -> map(|_| (context.current_tick() as u32,))`
+
+.async clientIn `null::<(u32,i64,u32,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> filter_map(|x: Result<(u32, BytesMut,), _>| (deserialize(x.unwrap().1)))`
+.async clientOut `map(|(node_id, (id, ballot, payload,))| (node_id, hash_and_serialize(id, ballot, payload))) -> dest_sink(client_send)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+.async clientAlertOut `map(|(node_id, (num))| (node_id, serialize(num))) -> dest_sink(client_send)` `null::<(u32,)>()`
 
 # Buffer inputs, choose 1 at a time.
-clientBuffer(v) :- clientIn(v)
-clientBuffer(v) :+ clientBuffer(v), !nextIn(v)
-nextIn(choose(v)) :- clientBuffer(v)
+clientBuffer(client, id, b, vid, v) :- clientIn(client, id, b, vid, v)
+clientBuffer(client, id, b, vid, v) :+ clientBuffer(client, id, b, vid, v), !nextIn(client, id)
+nextIn(choose(client), choose(id)) :- clientBuffer(client, id, b, vid, v)
+nextPayload(client, id, b, vid, v) :- nextIn(client, id), clientBuffer(client, id, b, vid, v)
 
-# Automatically updating epoch.
-ballots(b) :- startBallot(b)
-maxBallot(max(b)) :- ballots(b)
-ballots(b+1) :+ maxBallot(b)
+# Automatically send client alerts.
+clientFreqStorage(client, count(vid)) :- storage(client, vid, v)
+# Start tracking when we last sent a message to each client when it appears in storage.
+lastClientSend(client, t) :+ clientFreqStorage(client, n), !lastClientSend(client, _), tick(t)
+lastClientSend(client, t) :+ lastClientSend(client, t), !clientAlert(client, num)
+lastClientSend(client, t) :+ clientAlert(client, num), tick(t)
+storageSize(count(vid)) :- storage(client, vid, v)
+clientAlertInterval(client, (n-c+1)*100000) :- storageSize(n), clientFreqStorage(client, c) # Alert roughly based on % of storage used. Can't actually do percentage bc division is not supported...
+timeSinceAlert(client, t-prevT) :- lastClientSend(client, prevT), tick(t)
+clientAlert(client, num) :- timeSinceAlert(client, t), clientAlertInterval(client, i), (t > i), clientFreqStorage(client, num)
+clientAlertOut@client(num) :~ clientAlert(client, num)
 
 # Store 1 input and track previous input.
 .persist storage
-storage(b, v) :- nextIn(v), maxBallot(b)
+storage(client, vid, v) :- nextPayload(client, id, b, vid, v)
 
 # Output current input plus hash of previous (computed in rust).
-outHashed(v) :- nextIn(v), maxBallot(b)
+clientOut@client(id, b, v) :~ nextPayload(client, id, b, vid, v)

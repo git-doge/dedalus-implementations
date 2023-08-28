@@ -1,5 +1,7 @@
+.input responders `repeat_iter(peers.clone()) -> map(|p| (p,))`
+
 .async clientIn `null::<(u32,i64,u32,Rc<Vec<u8>>)>()` `source_stream(client_recv) -> map(|x| {let input = x.unwrap(); let v = decrypt_and_deserialize(input.1, &private_key); (input.0, v.0, v.1, v.2,)})`
-.async clientOut `map(|(node_id, (id, ballot, payload,))| (node_id, encrypt_and_serialize(id, ballot, payload, &mut rng, &public_key))) -> dest_sink(client_send)` `null::<(i64,u32,Rc<Vec<u8>>)>()`
+.async toResponder `map(|(node_id, v)| (node_id, serialize_to_bytes(v))) -> dest_sink(to_responder_sink)` `null::<(u32,i64,u32,Rc<Vec<u8>>)>()`
 
 # ballot is guaranteed to either be empty or contain the 1 current ballot
 newBallots(b) :- clientIn(client, id, b, v)
@@ -13,4 +15,4 @@ storage(v) :- clientIn(client, id, b, v)
 # Attach ballot at the time clientIn arrived to the output
 output(client, id, b, v) :- clientIn(client, id, _, v), ballot(b)
 output(client, id, 0, v) :- clientIn(client, id, _, v), !ballot(b)
-clientOut@client(id, b, v) :~ output(client, id, b, v)
+toResponder@addr(client, id, b, v) :~ output(client, id, b, v), responders(addr)

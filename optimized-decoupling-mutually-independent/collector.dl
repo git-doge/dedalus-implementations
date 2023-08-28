@@ -1,8 +1,10 @@
-.input numParticipants `repeat_iter([(num_participants,),])`
+.input numReplicas `repeat_iter([(num_replicas,),])`
 
-.async voteFromParticipant `null::<(u32,u32,)>()` `source_stream(from_participant_source) -> map(|v| deserialize_from_bytes::<(u32,u32,)>(v.unwrap()).unwrap())`
-        
-allVotes(l, v) :- voteFromParticipant(l, v)
-allVotes(l, v) :+ allVotes(l, v), !committed(v)
-voteCounts(count(l), v) :- allVotes(l, v)
-committed(v) :- voteCounts(n, v), numParticipants(n)
+.async voteFromReplica `null::<(u32,u32,i64,Rc<Vec<u8>>)>()` `source_stream(from_replica_source) -> map(|v| deserialize_from_bytes::<(u32,u32,i64,Rc<Vec<u8>>)>(v.unwrap().1).unwrap())`
+.async clientOut `map(|(node_id, (id, payload,))| (node_id, encrypt_and_serialize(id, payload, &mut rng, &public_key))) -> dest_sink(client_send)` `null::<(i64,Rc<Vec<u8>>)>()`
+
+allVotes(l, client, id, v) :- voteFromReplica(l, client, id, v)
+allVotes(l, client, id, v) :+ allVotes(l, client, id, v), !committed(client, id, _)
+voteCounts(count(l), client, id) :- allVotes(l, client, id, v)
+committed(client, id, v) :- voteCounts(n, client, id), numReplicas(n), allVotes(l, client, id, v)
+clientOut@client(id, v) :~ committed(client, id, v)

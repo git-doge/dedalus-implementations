@@ -1,6 +1,7 @@
 ######################## relation definitions
 # EDB
 .input id `repeat_iter(my_id.clone()) -> map(|p| (p,))`
+.input numProxyLeaders `repeat_iter([(num_proxy_leaders,),])`
 
 # Debug
 .output p1aOut `for_each(|(a,pid,id,num):(u32,u32,u32,u32,)| println!("acceptor {:?} received p1a: [{:?},{:?},{:?}]", a, pid, id, num))`
@@ -24,7 +25,8 @@
 ######################## end relation definitions
 
 
-.persist ballots
+// .persist ballots
+ballots(id, num) :+ ballots(id, num)
 .persist log
 
 
@@ -56,7 +58,7 @@ p1bLog@pid(i, payload, slot, payloadBallotID, payloadBallotNum, ballotID, ballot
 
 ######################## reply to p2a
 log(payload, slot, ballotID, ballotNum) :- p2a(pid, payload, slot, ballotID, ballotNum), MaxBallot(ballotID, ballotNum)
-p2b@pid(i, payload, slot, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p2a(pid, payload, slot, ballotID, ballotNum), id(i), MaxBallot(maxBallotID, maxBallotNum)
+p2b@(slot%n)(i, payload, slot, ballotID, ballotNum, maxBallotID, maxBallotNum) :~ p2a(pid, payload, slot, ballotID, ballotNum), id(i), MaxBallot(maxBallotID, maxBallotNum), numProxyLeaders(n)
 nack@pid(ballotID, ballotNum) :~ p2a(pid, payload, slot, ballotID, ballotNum), MaxBallot(maxBallotID, maxBallotNum), (ballotNum < maxBallotNum)
 nack@pid(ballotID, ballotNum) :~ p2a(pid, payload, slot, ballotID, ballotNum), MaxBallot(maxBallotID, maxBallotNum), (ballotNum == maxBallotNum), (ballotID < maxBallotID)
 ######################## end reply to p2a
